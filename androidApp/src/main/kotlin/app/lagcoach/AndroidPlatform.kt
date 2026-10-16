@@ -63,6 +63,14 @@ class AndroidPlatform(private val app: Context) : Platform {
             else "Data Saver is blocking Lagcoach in the background.",
             bgData, "Open settings", problem = "Background data is blocked")
 
+        if (Build.VERSION.SDK_INT >= 36) {
+            val live = NotificationManagerCompat.from(app).canPostPromotedNotifications()
+            items += HealthItem("live", "Live updates",
+                if (live) "The bus you're tracking shows in the status bar and on the lock screen."
+                else "Turn on to see the bus you're tracking in the status bar and on the lock screen.",
+                live, "Turn on", required = false)
+        }
+
         val loc = hasLocation()
         items += HealthItem("location", "Location (optional)",
             if (loc) "Used only when you tap \"Use my location\"." else "Only needed to find stops near you. Search works without it.",
@@ -90,6 +98,7 @@ class AndroidPlatform(private val app: Context) : Platform {
             }
             "data" -> open(Intent(Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS, Uri.parse("package:${app.packageName}")))
             "location" -> act?.requestLocation { refreshHealth() }
+            "live" -> open(Intent("android.settings.APP_NOTIFICATION_PROMOTION_SETTINGS").putExtra(Settings.EXTRA_APP_PACKAGE, app.packageName))
         }
     }
 

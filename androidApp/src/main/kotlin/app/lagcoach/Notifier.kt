@@ -13,6 +13,8 @@ import app.lagcoach.engine.AlertKind
 object Notifier {
     const val CH_ALERTS = "alerts"
     const val CH_WATCHING = "watching"
+    const val CH_TRIP = "trip"
+    const val EXTRA_OPEN = "open"
     const val ONGOING_ID = 1
     private const val BRAND = 0xFF0077C8.toInt()
 
@@ -29,12 +31,74 @@ object Notifier {
                 setShowBadge(false)
             },
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_TRIP, "Bus you're on", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Live progress of a bus you're tracking to your stop (a Live Update on Android 16+)"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+            },
+        )
     }
 
-    private fun openApp(ctx: Context) = PendingIntent.getActivity(
-        ctx, 0, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+    private fun openApp(ctx: Context, screen: String? = null) = PendingIntent.getActivity(
+        ctx, if (screen == null) 0 else 1,
+        Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .apply { screen?.let { putExtra(EXTRA_OPEN, it) } },
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
+
+    /**
+     * The bus you're on, as an Android 16+ Live Update: a status bar chip with minutes to
+     * your stop, and a progress bar of the route with the bus moving along it. Older
+     * Android versions show it as a normal ongoing notification with the same progress bar.
+     */
+    fun tripLive(ctx: Context, t: app.lagcoach.model.OneOffTrip, extra: String? = null): android.app.Notification {
+        val now = System.currentTimeMillis() / 1000
+        val eta = t.expectedArrival ?: t.scheduledArrival
+        val due = if (t.departed) eta else (t.expectedDeparture ?: t.scheduledDeparture)
+        val mins = due?.let { ((it - now + 30) / 60).toInt() }
+        val unit = 12
+        val n = t.stops.size.coerceAtLeast(2)
+        val nextIdx = t.stops.indexOfFirst { it.atco == t.nextStop }
+        val progress = when {
+            !t.departed -> 0
+            nextIdx <= 0 -> 0
+            else -> (((nextIdx - 1) + (t.segmentProgress ?: 0.5).coerceIn(0.0, 1.0)) * unit).toInt()
+        }.coerceIn(0, (n - 1) * unit)
+        val style = NotificationCompat.ProgressStyle()
+            .setStyledByProgress(true)
+            .setProgressSegments(listOf(NotificationCompat.ProgressStyle.Segment((n - 1) * unit).setColor(BRAND)))
+            .setProgress(progress)
+            .setProgressTrackerIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(ctx, R.drawable.ic_bus))
+            .setProgressEndIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(ctx, R.drawable.ic_stop_flag))
+        // A dot per stop when there's room (the system caps the number of points).
+        if (n in 3..14) {
+            style.setProgressPoints((1 until n - 1).map { NotificationCompat.ProgressStyle.Point(it * unit).setColor(BRAND) })
+        }
+        val title = "${t.line} to ${t.to.name.substringBefore(" (")}"
+        val text = tripSummary(t) + (extra?.let { "\n$it" } ?: "")
+        return NotificationCompat.Builder(ctx, CH_TRIP)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(style)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setRequestPromotedOngoing(true)
+            .apply {
+                // Status bar chip: minutes to your stop (or to the bus, while waiting).
+                if (mins != null) setShortCriticalText(if (mins <= 0) "Now" else "$mins min")
+                setShowWhen(false)
+            }
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setContentIntent(openApp(ctx, "trip"))
+            .build()
+    }
+
+    fun updateTripLive(ctx: Context, t: app.lagcoach.model.OneOffTrip, extra: String?) = post(ctx, ONGOING_ID) { tripLive(ctx, t, extra) }
 
     fun ongoing(ctx: Context, title: String, text: String) =
         NotificationCompat.Builder(ctx, CH_WATCHING)
@@ -89,7 +153,7 @@ object Notifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
-            .setContentIntent(openApp(ctx))
+            .setContentIntent(openApp(ctx, "trip"))
             .setTimeoutAfter(30 * 60 * 1000L)
             .build()
         post(ctx, 3) { n }

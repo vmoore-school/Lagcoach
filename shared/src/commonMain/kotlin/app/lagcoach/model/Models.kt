@@ -164,6 +164,8 @@ data class OneOffTrip(
     val lastLat: Double? = null,
     val lastLon: Double? = null,
     val nextStop: String? = null,
+    /** Fraction of the way from the previous stop to [nextStop]. */
+    val segmentProgress: Double? = null,
     val delaySeconds: Long? = null,
     val notifiedNext: Boolean = false,
     val lastUpdate: Long = 0,

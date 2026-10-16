@@ -64,6 +64,8 @@ data class LiveVehicle(
     val prevStop: String?,
     val name: String?,
     val updated: String?,
+    /** How far between [prevStop] and [nextStop], 0..1. */
+    val progress: Double? = null,
 )
 
 /**
@@ -143,6 +145,7 @@ class BusTimesClient(
                 prevStop = progress?.str("prev_stop"),
                 name = (o["vehicle"] as? JsonObject)?.str("name"),
                 updated = o.str("datetime"),
+                progress = progress?.get("progress")?.jsonPrimitive?.doubleOrNull,
             )
         }
     }

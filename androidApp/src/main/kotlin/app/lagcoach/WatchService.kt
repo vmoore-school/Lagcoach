@@ -32,7 +32,8 @@ class WatchService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val n = Notifier.ongoing(this, "Watching your journey", "Checking live times…")
+        val n = AppGraph.repo.data.value.activeTrip?.let { Notifier.tripLive(this, it) }
+            ?: Notifier.ongoing(this, "Watching your journey", "Checking live times…")
         try {
             ServiceCompat.startForeground(
                 this, Notifier.ONGOING_ID, n,
@@ -68,17 +69,16 @@ class WatchService : Service() {
                 t?.trip?.let { if (t.nextStopAlert) Notifier.nextStop(this, it) }
                 t?.ended?.let { Notifier.tripEnded(this, it) }
 
-                val lines = mutableListOf<String>()
-                var title = "Watching your journey"
-                t?.trip?.let { trip ->
-                    title = "${trip.line} to ${trip.to.name.substringBefore(" (")}"
-                    lines += Notifier.tripSummary(trip)
+                val act = r?.active.orEmpty()
+                val trip = t?.trip
+                if (trip != null) {
+                    // The bus you're on takes over the ongoing notification as a Live Update.
+                    val extra = act.takeIf { it.isNotEmpty() }?.joinToString("\n") { (w, s) -> "${w.label}: $s" }
+                    Notifier.updateTripLive(this, trip, extra)
+                } else if (act.isNotEmpty()) {
+                    val title = if (act.size == 1) act[0].first.label else "Watching ${act.size} journeys"
+                    Notifier.updateOngoing(this, title, act.joinToString("\n") { (w, s) -> if (act.size == 1) s else "${w.label}: $s" })
                 }
-                r?.active?.let { act ->
-                    if (t?.trip == null) title = if (act.size == 1) act[0].first.label else "Watching ${act.size} journeys"
-                    act.forEach { (w, s) -> lines += if (act.size == 1 && t?.trip == null) s else "${w.label}: $s" }
-                }
-                if (lines.isNotEmpty()) Notifier.updateOngoing(this, title, lines.joinToString("\n"))
                 // Follow a bus you're on more closely than a commute window.
                 val poll = AppGraph.repo.data.value.settings.pollSeconds.coerceIn(20, 600)
                 delay((if (tripActive) minOf(poll, 30) else poll) * 1000L)

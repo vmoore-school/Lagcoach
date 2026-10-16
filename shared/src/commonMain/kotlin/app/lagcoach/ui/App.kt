@@ -65,6 +65,14 @@ fun App() {
     val data by AppGraph.repo.data.collectAsState()
     LagTheme(dynamic = data.settings.dynamicColor && AppGraph.platform.supportsDynamicColor) {
         val nav = remember { Nav() }
+        val open by AppGraph.openRequest.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(open) {
+            if (open == "trip") {
+                nav.popTo { false }
+                nav.push(Screen.TrackTrip)
+            }
+            if (open != null) AppGraph.openRequest.value = null
+        }
         val c = Lag.colors
         PlatformBackHandler(enabled = nav.stack.isNotEmpty() || nav.tab != Tab.Journeys) {
             if (nav.stack.isNotEmpty()) nav.pop() else nav.tab = Tab.Journeys

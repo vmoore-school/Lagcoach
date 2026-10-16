@@ -42,7 +42,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         platform.activity = this
+        handleOpen(intent)
         setContent { App() }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleOpen(intent)
+    }
+
+    private fun handleOpen(intent: android.content.Intent?) {
+        intent?.getStringExtra(Notifier.EXTRA_OPEN)?.let { AppGraph.openRequest.value = it }
     }
 
     override fun onResume() {

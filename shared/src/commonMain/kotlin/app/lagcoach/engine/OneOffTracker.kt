@@ -46,6 +46,7 @@ object OneOffLogic {
         if (bus != null) {
             trip = trip.copy(
                 lastLat = bus.lat, lastLon = bus.lon, nextStop = bus.nextStop ?: trip.nextStop,
+                segmentProgress = bus.progress ?: trip.segmentProgress,
                 delaySeconds = bus.delaySeconds ?: trip.delaySeconds,
                 journeyId = trip.journeyId ?: bus.journeyId, tripId = trip.tripId ?: bus.tripId,
                 vehicle = trip.vehicle ?: bus.name,
