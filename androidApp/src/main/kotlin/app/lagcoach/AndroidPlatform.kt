@@ -119,6 +119,11 @@ class AndroidPlatform(private val app: Context) : Platform {
 
     override fun watchesChanged() = Scheduler.reschedule(app)
 
+    override fun skipChanged(watchId: String, skipped: Boolean) {
+        if (skipped) Notifier.cancelAlerts(app, watchId)
+        AppGraph.wake.trySend(Unit)
+    }
+
     @SuppressLint("MissingPermission")
     override suspend fun currentLocation(): GeoResult {
         if (!hasLocation()) {

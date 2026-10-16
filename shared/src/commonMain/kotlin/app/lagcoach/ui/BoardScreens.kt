@@ -45,6 +45,7 @@ import app.lagcoach.model.StopRef
 import app.lagcoach.model.UkZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -140,6 +141,9 @@ fun WatchDetailScreen(nav: Nav, watchId: String) {
     val now = rememberNow()
     val (board, refresh) = rememberBoard(w.stop.atco)
     val active = Schedule.activeWindow(w, now)
+    val skippable = Schedule.skippableWindow(w, now)
+    val skipped = skippable != null && Schedule.isSkipped(w, skippable)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val upcoming = board.departures.orEmpty().filter { w.matchesLine(it.line) }.take(8)
     val mine = obs.filter { it.watchId == w.id }
     val stats = remember(mine, now) { app.lagcoach.stats.StatsCalc.summarise(mine, null, now) }
@@ -161,6 +165,7 @@ fun WatchDetailScreen(nav: Nav, watchId: String) {
                         Text(
                             when {
                                 !w.enabled -> "Alerts are off for this journey"
+                                skipped -> "Not taking it today"
                                 active != null -> "Watching now until ${Schedule.hhmm(active.end)}"
                                 else -> Schedule.nextMonitorStart(w, now)?.let { "Next check ${relativeDay(it, now)}" } ?: "No days selected"
                             },
@@ -171,6 +176,19 @@ fun WatchDetailScreen(nav: Nav, watchId: String) {
                                 (if (w.lines.isEmpty()) "all routes" else "routes ${w.lines.joinToString(", ")}"),
                             style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM), color = c.inkMuted,
                         )
+                        if (skippable != null) {
+                            Spacer(Modifier.height(8.dp))
+                            TextAction(
+                                if (skipped) "I'm taking it after all" else "Not taking it today",
+                                { scope.launch { app.lagcoach.setNotTaking(w, skippable, !skipped) } },
+                                inline = true,
+                            )
+                            Text(
+                                if (skipped) "Watching starts again, but buses from before you undid it stay out of your stats."
+                                else "Stops watching today's window and leaves today's buses out of your stats.",
+                                style = MaterialTheme.typography.bodySmall, color = c.inkFaint,
+                            )
+                        }
                     }
                 }
                 item {

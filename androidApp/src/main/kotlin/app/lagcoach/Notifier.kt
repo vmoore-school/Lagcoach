@@ -53,7 +53,10 @@ object Notifier {
      * your stop, and a progress bar of the route with the bus moving along it. Older
      * Android versions show it as a normal ongoing notification with the same progress bar.
      */
-    fun tripLive(ctx: Context, t: app.lagcoach.model.OneOffTrip, extra: String? = null): android.app.Notification {
+    fun tripLive(
+        ctx: Context, t: app.lagcoach.model.OneOffTrip, extra: String? = null,
+        watching: List<Pair<app.lagcoach.model.Watch, String>> = emptyList(),
+    ): android.app.Notification {
         val now = System.currentTimeMillis() / 1000
         val eta = t.expectedArrival ?: t.scheduledArrival
         val due = if (t.departed) eta else (t.expectedDeparture ?: t.scheduledDeparture)
@@ -95,12 +98,28 @@ object Notifier {
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openApp(ctx, "trip"))
+            .apply { notTakingActions(ctx, watching) }
             .build()
     }
 
-    fun updateTripLive(ctx: Context, t: app.lagcoach.model.OneOffTrip, extra: String?) = post(ctx, ONGOING_ID) { tripLive(ctx, t, extra) }
+    fun updateTripLive(ctx: Context, t: app.lagcoach.model.OneOffTrip, extra: String?, watching: List<Pair<app.lagcoach.model.Watch, String>>) =
+        post(ctx, ONGOING_ID) { tripLive(ctx, t, extra, watching) }
 
-    fun ongoing(ctx: Context, title: String, text: String) =
+    /** A "Not taking" button per journey being watched (the system shows at most three). */
+    private fun NotificationCompat.Builder.notTakingActions(ctx: Context, watching: List<Pair<app.lagcoach.model.Watch, String>>) {
+        watching.take(3).forEach { (w, date) ->
+            val pi = PendingIntent.getBroadcast(
+                ctx, w.id.hashCode(),
+                Intent(ctx, NotTakingReceiver::class.java)
+                    .putExtra(NotTakingReceiver.EXTRA_WATCH, w.id)
+                    .putExtra(NotTakingReceiver.EXTRA_DATE, date),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            addAction(0, if (watching.size == 1) "Not taking" else "Not taking ${w.label}", pi)
+        }
+    }
+
+    fun ongoing(ctx: Context, title: String, text: String, watching: List<Pair<app.lagcoach.model.Watch, String>> = emptyList()) =
         NotificationCompat.Builder(ctx, CH_WATCHING)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(BRAND)
@@ -113,9 +132,17 @@ object Notifier {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openApp(ctx))
+            .apply { notTakingActions(ctx, watching) }
             .build()
 
-    fun updateOngoing(ctx: Context, title: String, text: String) = post(ctx, ONGOING_ID) { ongoing(ctx, title, text) }
+    fun updateOngoing(ctx: Context, title: String, text: String, watching: List<Pair<app.lagcoach.model.Watch, String>>) =
+        post(ctx, ONGOING_ID) { ongoing(ctx, title, text, watching) }
+
+    /** Clears alerts already showing for a journey (e.g. after "Not taking"). */
+    fun cancelAlerts(ctx: Context, watchId: String) {
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        nm.activeNotifications.filter { it.tag == watchId }.forEach { nm.cancel(it.tag, it.id) }
+    }
 
     fun alert(ctx: Context, a: Alert) {
         val n = NotificationCompat.Builder(ctx, CH_ALERTS)
@@ -131,7 +158,7 @@ object Notifier {
             .setContentIntent(openApp(ctx))
             .setTimeoutAfter(3 * 60 * 60 * 1000L)
             .build()
-        post(ctx, a.notificationKey.hashCode() and 0x7FFFFFFF or 0x100) { n }
+        post(ctx, a.notificationKey.hashCode() and 0x7FFFFFFF or 0x100, tag = a.watch.id) { n }
     }
 
     fun tripSummary(t: app.lagcoach.model.OneOffTrip): String {
@@ -193,11 +220,11 @@ object Notifier {
         post(ctx, 2) { n }
     }
 
-    private inline fun post(ctx: Context, id: Int, build: () -> android.app.Notification) {
+    private inline fun post(ctx: Context, id: Int, tag: String? = null, build: () -> android.app.Notification) {
         val nm = NotificationManagerCompat.from(ctx)
         if (!nm.areNotificationsEnabled()) return
         try {
-            nm.notify(id, build())
+            nm.notify(tag, id, build())
         } catch (_: SecurityException) {
         }
     }

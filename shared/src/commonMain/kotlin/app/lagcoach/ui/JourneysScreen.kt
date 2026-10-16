@@ -126,6 +126,8 @@ fun WatchCard(w: Watch, live: WatchLive?, now: Instant, onClick: () -> Unit) {
     val c = Lag.colors
     val scope = rememberCoroutineScope()
     val active = Schedule.activeWindow(w, now)
+    val skippable = Schedule.skippableWindow(w, now)
+    val skipped = skippable != null && Schedule.isSkipped(w, skippable)
     Panel(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick), padding = PaddingValues(0.dp)) {
         Column(Modifier.padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -157,13 +159,20 @@ fun WatchCard(w: Watch, live: WatchLive?, now: Instant, onClick: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             val (dotColor, text) = when {
                 !w.enabled -> c.inkFaint to "Off"
+                skipped -> c.inkFaint to "Not taking today"
                 active != null && live != null -> c.good to (live.error?.let { "Watching · $it" } ?: live.summary)
                 active != null -> c.good to "Watching now"
                 else -> c.inkFaint to (Schedule.nextMonitorStart(w, now)?.let { "Next check ${relativeDay(it, now)}" } ?: "Pick at least one day")
             }
             Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
             Spacer(Modifier.width(8.dp))
-            Text(text, style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM), color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM),
+                color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (skippable != null) {
+                TextAction(if (skipped) "Undo" else "Not taking", { scope.launch { app.lagcoach.setNotTaking(w, skippable, !skipped) } })
+            }
         }
     }
 }

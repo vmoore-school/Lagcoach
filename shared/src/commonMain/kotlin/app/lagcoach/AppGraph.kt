@@ -53,6 +53,14 @@ interface Platform {
     fun testNotification()
     fun openUrl(url: String)
     fun watchesChanged()
+    /** After "Not taking" (or undoing it): clear that journey's alerts and refresh the watcher. */
+    fun skipChanged(watchId: String, skipped: Boolean)
+}
+
+/** Mark (or unmark) [w]'s current window as not being taken. */
+suspend fun setNotTaking(w: app.lagcoach.model.Watch, window: app.lagcoach.engine.WindowSpan, skip: Boolean) {
+    AppGraph.repo.setSkipped(w.id, window.date.toString(), skip)
+    AppGraph.platform.skipChanged(w.id, skip)
 }
 
 object AppGraph {
@@ -64,5 +72,7 @@ object AppGraph {
     val openRequest = MutableStateFlow<String?>(null)
     /** For work that must outlive the screen that started it. */
     val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+    /** Nudges the watch service to poll straight away instead of waiting out its interval. */
+    val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     val tracker: app.lagcoach.engine.OneOffTracker by lazy { app.lagcoach.engine.OneOffTracker(repo, client) }
 }

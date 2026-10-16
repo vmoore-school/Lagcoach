@@ -40,17 +40,32 @@ object Schedule {
         return WindowSpan(date, start, end, start - watch.alerts.leadMinutes.minutes, trackUntil)
     }
 
-    /** The window being monitored right now, if any. */
-    fun activeWindow(watch: Watch, now: Instant, zone: TimeZone = UkZone): WindowSpan? {
+    fun isSkipped(watch: Watch, w: WindowSpan) = watch.skipDate == w.date.toString()
+
+    /** The window being monitored right now, if any. A window marked "Not taking" isn't. */
+    fun activeWindow(watch: Watch, now: Instant, zone: TimeZone = UkZone, includeSkipped: Boolean = false): WindowSpan? {
         if (!watch.enabled) return null
         val today = now.toLocalDateTime(zone).date
         // Check yesterday too, for windows that run past midnight.
         for (d in listOf(today.plus(DatePeriod(days = -1)), today)) {
             if (!watch.runsOn(d.dayOfWeek)) continue
             val w = windowOn(watch, d, zone)
+            if (!includeSkipped && isSkipped(watch, w)) continue
             if (now >= w.monitorFrom && now <= w.trackUntil) return w
         }
         return null
+    }
+
+    /**
+     * The window "Not taking" applies to: the one being watched now, or else today's if
+     * it hasn't finished yet. Includes a window already skipped, so it can be undone.
+     */
+    fun skippableWindow(watch: Watch, now: Instant, zone: TimeZone = UkZone): WindowSpan? {
+        if (!watch.enabled) return null
+        activeWindow(watch, now, zone, includeSkipped = true)?.let { return it }
+        val today = now.toLocalDateTime(zone).date
+        if (!watch.runsOn(today.dayOfWeek)) return null
+        return windowOn(watch, today, zone).takeIf { now <= it.end }
     }
 
     /** When monitoring should next begin for this watch (strictly after [now]). */
@@ -61,7 +76,7 @@ object Schedule {
             val d = today.plus(DatePeriod(days = i))
             if (!watch.runsOn(d.dayOfWeek)) continue
             val w = windowOn(watch, d, zone)
-            if (w.monitorFrom > now) return w.monitorFrom
+            if (w.monitorFrom > now && !isSkipped(watch, w)) return w.monitorFrom
         }
         return null
     }

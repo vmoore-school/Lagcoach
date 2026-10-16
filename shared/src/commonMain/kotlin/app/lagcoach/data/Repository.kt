@@ -102,6 +102,19 @@ class Repository {
         onWatchesChanged?.invoke()
     }
 
+    /**
+     * "Not taking" a journey's window on [date]: stop watching it and drop that day's
+     * buses from the stats. [skip] false undoes it (watching resumes from now on).
+     */
+    suspend fun setSkipped(watchId: String, date: String, skip: Boolean) {
+        edit { d -> d.copy(watches = d.watches.map { if (it.id == watchId) it.copy(skipDate = if (skip) date else null) else it }) }
+        if (skip) mutex.withLock {
+            _observations.value = _observations.value.filterNot { it.watchId == watchId && it.date == date }
+            saveObservations()
+        }
+        onWatchesChanged?.invoke()
+    }
+
     private suspend fun edit(f: (AppData) -> AppData) = mutex.withLock {
         val next = f(_data.value)
         _data.value = next
@@ -110,9 +123,11 @@ class Repository {
 
     suspend fun upsertObservations(changed: Collection<Observation>) {
         if (changed.isEmpty()) return
+        // A poll that was already running when the user tapped "Not taking" mustn't re-add the day.
+        val skipped = _data.value.watches.mapNotNull { w -> w.skipDate?.let { w.id to it } }.toSet()
         mutex.withLock {
             val byKey = _observations.value.associateByTo(LinkedHashMap()) { it.key }
-            changed.forEach { byKey[it.key] = it }
+            changed.filterNot { (it.watchId to it.date) in skipped }.forEach { byKey[it.key] = it }
             val cutoff = (Clock.System.now() - 400.days).epochSeconds
             _observations.value = byKey.values.filter { it.scheduled >= cutoff }.sortedBy { it.scheduled }
             saveObservations()

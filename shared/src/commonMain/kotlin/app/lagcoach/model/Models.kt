@@ -49,6 +49,8 @@ data class Watch(
     val days: Set<Int> = setOf(1, 2, 3, 4, 5),
     val enabled: Boolean = true,
     val alerts: AlertPrefs = AlertPrefs(),
+    /** Window date (ISO) the user said they're not taking: no watching, and kept out of stats. */
+    val skipDate: String? = null,
 ) {
     fun runsOn(day: DayOfWeek) = day.isoDayNumber() in days
     fun matchesLine(line: String) = lines.isEmpty() || lines.any { it.equals(line, ignoreCase = true) }

@@ -48,6 +48,7 @@
         </service>
 
         <receiver android:name=".AlarmReceiver" android:exported="false" />
+        <receiver android:name=".NotTakingReceiver" android:exported="false" />
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

@@ -272,7 +272,8 @@ fun EditWatchScreen(nav: Nav, st: EditorState) {
                         else -> null
                     }
                     if (w != null && error == null) scope.launch {
-                        AppGraph.repo.upsertWatch(w)
+                        val skip = AppGraph.repo.data.value.watches.firstOrNull { it.id == w.id }?.skipDate
+                        AppGraph.repo.upsertWatch(w.copy(skipDate = skip))
                         nav.popTo { false }
                     }
                 },

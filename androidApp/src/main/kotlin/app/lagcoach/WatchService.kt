@@ -8,14 +8,15 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.ServiceCompat
+import app.lagcoach.engine.Schedule
 import app.lagcoach.engine.Watcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 
 /**
@@ -70,18 +71,19 @@ class WatchService : Service() {
                 t?.ended?.let { Notifier.tripEnded(this, it) }
 
                 val act = r?.active.orEmpty()
+                val skippable = act.mapNotNull { (w, _) -> Schedule.activeWindow(w, now)?.let { w to it.date.toString() } }
                 val trip = t?.trip
                 if (trip != null) {
                     // The bus you're on takes over the ongoing notification as a Live Update.
                     val extra = act.takeIf { it.isNotEmpty() }?.joinToString("\n") { (w, s) -> "${w.label}: $s" }
-                    Notifier.updateTripLive(this, trip, extra)
+                    Notifier.updateTripLive(this, trip, extra, skippable)
                 } else if (act.isNotEmpty()) {
                     val title = if (act.size == 1) act[0].first.label else "Watching ${act.size} journeys"
-                    Notifier.updateOngoing(this, title, act.joinToString("\n") { (w, s) -> if (act.size == 1) s else "${w.label}: $s" })
+                    Notifier.updateOngoing(this, title, act.joinToString("\n") { (w, s) -> if (act.size == 1) s else "${w.label}: $s" }, skippable)
                 }
                 // Follow a bus you're on more closely than a commute window.
                 val poll = AppGraph.repo.data.value.settings.pollSeconds.coerceIn(20, 600)
-                delay((if (tripActive) minOf(poll, 30) else poll) * 1000L)
+                withTimeoutOrNull((if (tripActive) minOf(poll, 30) else poll) * 1000L) { AppGraph.wake.receive() }
             }
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()
