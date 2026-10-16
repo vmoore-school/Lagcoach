@@ -44,6 +44,8 @@ data class HealthItem(
 
 interface Platform {
     val appVersion: String
+    /** Material You (Android 12+). */
+    val supportsDynamicColor: Boolean
     val healthTick: StateFlow<Int>
     suspend fun currentLocation(): GeoResult
     fun healthChecks(): List<HealthItem>

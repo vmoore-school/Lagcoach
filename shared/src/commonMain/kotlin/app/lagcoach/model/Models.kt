@@ -60,6 +60,8 @@ fun DayOfWeek.isoDayNumber(): Int = ordinal + 1
 data class Settings(
     val pollSeconds: Int = 60,
     val onboarded: Boolean = false,
+    /** Use the phone's wallpaper-based Material You colours instead of the Stagecoach palette. */
+    val dynamicColor: Boolean = false,
 )
 
 /** One live/scheduled row from a stop's departure board. */

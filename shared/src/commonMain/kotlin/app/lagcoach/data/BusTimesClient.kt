@@ -61,8 +61,11 @@ class BusTimesClient(
     suspend fun stopByCode(code: String): StopRef? {
         val c = code.trim().replace(" ", "")
         if (c.isEmpty()) return null
-        return stopsQuery("naptan_code=${c.uppercase().encodeURLQueryComponent()}").firstOrNull()
-            ?: stopsQuery("atco_code=${c.uppercase().encodeURLQueryComponent()}").firstOrNull()
+        // NaPTAN code case varies by area (Manchester "MANGPJGA", Bedford "bfsamadm").
+        for (q in listOf(c, c.uppercase(), c.lowercase()).distinct()) {
+            stopsQuery("naptan_code=${q.encodeURLQueryComponent()}").firstOrNull()?.let { return it }
+        }
+        return stopsQuery("atco_code=${c.uppercase().encodeURLQueryComponent()}").firstOrNull()
     }
 
     private suspend fun stopsQuery(q: String): List<StopRef> {
@@ -117,14 +120,19 @@ class BusTimesClient(
         }.filter { it.name.isNotBlank() }.distinctBy { it.slug }
     }
 
-    /** Stops listed on a locality page. */
-    suspend fun placeStops(slug: String): List<StopRef> {
-        val doc = Ksoup.parse(getText("$base/localities/${slug}"))
+    /**
+     * Stops listed on a locality page. Names there are often relative to the place
+     * ("Bus Station (Stand A)" under Bedford), so the place name is put in front.
+     */
+    suspend fun placeStops(place: Place): List<StopRef> {
+        val doc = Ksoup.parse(getText("$base/localities/${place.slug}"))
+        val town = place.name.substringBefore(",").trim()
         return doc.select("li > a[href^=/stops/]").map { a ->
-            val name = a.selectFirst("span")?.text()?.trim() ?: a.ownText().trim()
+            val raw = (a.selectFirst("span")?.text()?.trim() ?: a.ownText().trim())
+                .trimEnd('↖', '↑', '↗', '→', '↘', '↓', '↙', '←', ' ')
             StopRef(
                 atco = a.attr("href").removePrefix("/stops/").trim('/'),
-                name = name.trimEnd('↖', '↑', '↗', '→', '↘', '↓', '↙', '←', ' '),
+                name = if (town.isEmpty() || raw.contains(town, ignoreCase = true)) raw else "$town $raw",
                 lines = a.select("small").map { it.text().trim() }.filter { it.isNotEmpty() },
             )
         }.distinctBy { it.atco }

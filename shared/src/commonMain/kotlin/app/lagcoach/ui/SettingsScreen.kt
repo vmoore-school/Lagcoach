@@ -60,6 +60,18 @@ fun SettingsScreen() {
                 Spacer(Modifier.height(8.dp))
                 TextAction("Send a test alert", { AppGraph.platform.testNotification() }, inline = true)
             }
+            if (AppGraph.platform.supportsDynamicColor) {
+                Column {
+                    SectionLabel("Appearance")
+                    Panel(padding = PaddingValues(0.dp)) {
+                        SwitchRow(
+                            "Use device colours",
+                            "Match your wallpaper (Material You) instead of the Stagecoach blue and navy",
+                            data.settings.dynamicColor,
+                        ) { on -> scope.launch { AppGraph.repo.updateSettings { it.copy(dynamicColor = on) } } }
+                    }
+                }
+            }
             Column {
                 SectionLabel("Checking")
                 Panel {

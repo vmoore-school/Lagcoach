@@ -60,9 +60,9 @@ class Nav {
 
 @Composable
 fun App() {
-    LagTheme {
+    val data by AppGraph.repo.data.collectAsState()
+    LagTheme(dynamic = data.settings.dynamicColor && AppGraph.platform.supportsDynamicColor) {
         val nav = remember { Nav() }
-        val data by AppGraph.repo.data.collectAsState()
         val c = Lag.colors
         PlatformBackHandler(enabled = nav.stack.isNotEmpty() || nav.tab != Tab.Journeys) {
             if (nav.stack.isNotEmpty()) nav.pop() else nav.tab = Tab.Journeys

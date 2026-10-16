@@ -11,6 +11,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -117,11 +118,46 @@ fun figtree(): FontFamily = FontFamily(
 /** Tabular figures so times line up in columns. */
 const val TNUM = "tnum"
 
+/** The phone's Material You scheme, or null where unsupported. */
 @Composable
-fun LagTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val lag = if (dark) DarkLag else LightLag
+expect fun platformDynamicScheme(dark: Boolean): ColorScheme?
+
+/** Light or dark status/navigation bar icons to suit the header and page colours. */
+@Composable
+expect fun SystemBarIcons(lightStatusIcons: Boolean, lightNavIcons: Boolean)
+
+/**
+ * Map a Material You scheme onto Lagcoach's roles. Status colours stay fixed: late,
+ * early and cancelled must read the same whatever the wallpaper.
+ */
+fun lagFromScheme(s: ColorScheme, dark: Boolean): LagColors {
+    val base = if (dark) DarkLag else LightLag
+    return base.copy(
+        page = s.surface,
+        surface = if (dark) s.surfaceContainer else s.surfaceContainerLowest,
+        surfaceAlt = s.surfaceContainerHigh,
+        header = s.primaryContainer,
+        onHeader = s.onPrimaryContainer,
+        onHeaderMuted = s.onPrimaryContainer.copy(alpha = 0.72f),
+        ink = s.onSurface,
+        inkMuted = s.onSurfaceVariant,
+        inkFaint = s.outline,
+        line = s.outlineVariant,
+        brand = s.primary,
+        onBrand = s.onPrimary,
+        brandTint = s.secondaryContainer,
+        routeBadge = s.primary,
+        onRouteBadge = s.onPrimary,
+    )
+}
+
+@Composable
+fun LagTheme(dark: Boolean = isSystemInDarkTheme(), dynamic: Boolean = false, content: @Composable () -> Unit) {
+    val dyn = if (dynamic) platformDynamicScheme(dark) else null
+    val lag = dyn?.let { lagFromScheme(it, dark) } ?: if (dark) DarkLag else LightLag
+    SystemBarIcons(lightStatusIcons = lag.header.luminance() < 0.5f, lightNavIcons = lag.surface.luminance() < 0.5f)
     val ff = figtree()
-    val scheme: ColorScheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
+    val scheme: ColorScheme = dyn?.copy(error = lag.bad) ?: (if (dark) darkColorScheme() else lightColorScheme()).copy(
         primary = lag.brand,
         onPrimary = lag.onBrand,
         primaryContainer = lag.brandTint,

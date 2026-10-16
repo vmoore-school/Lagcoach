@@ -31,6 +31,8 @@ class AndroidPlatform(private val app: Context) : Platform {
     override val healthTick: StateFlow<Int> = _healthTick
     fun refreshHealth() { _healthTick.value++ }
 
+    override val supportsDynamicColor: Boolean = Build.VERSION.SDK_INT >= 31
+
     override val appVersion: String =
         app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "?"
 

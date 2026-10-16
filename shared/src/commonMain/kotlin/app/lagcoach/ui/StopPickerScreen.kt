@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import app.lagcoach.AppGraph
 import app.lagcoach.GeoResult
 import app.lagcoach.data.Place
+import app.lagcoach.data.StopSearch
 import app.lagcoach.data.distanceMetres
 import app.lagcoach.model.StopRef
 import kotlinx.coroutines.delay
@@ -126,54 +127,91 @@ private fun NearbyStops(onPicked: (StopRef) -> Unit) {
 
 @Composable
 private fun SearchStops(onPicked: (StopRef) -> Unit) {
+    val c = Lag.colors
     var query by remember { mutableStateOf("") }
-    var places by remember { mutableStateOf<List<Place>?>(null) }
+    var outcome by remember { mutableStateOf<StopSearch.Outcome?>(null) }
     var place by remember { mutableStateOf<Place?>(null) }
+    var filter by remember { mutableStateOf("") }
     var stops by remember { mutableStateOf<List<StopRef>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {
         place = null
-        if (query.trim().length < 3) { places = null; return@LaunchedEffect }
+        if (query.trim().length < 3) { outcome = null; return@LaunchedEffect }
         delay(400)
         busy = true
-        val r = runCatching { AppGraph.client.searchPlaces(query) }
-        places = r.getOrNull(); failed = r.isFailure
+        val r = runCatching {
+            StopSearch.resolve(query, { AppGraph.client.searchPlaces(it) }, { AppGraph.client.placeStops(it) })
+        }
+        failed = r.isFailure
+        outcome = r.getOrNull()
+        outcome?.let { o -> if (o.chosen != null) { stops = o.stops; filter = o.filter; place = o.chosen } }
         busy = false
     }
     LaunchedEffect(place) {
         val p = place ?: return@LaunchedEffect
+        if (p == outcome?.chosen && outcome?.stops != null) { stops = outcome!!.stops; return@LaunchedEffect }
         stops = null; busy = true
-        val r = runCatching { AppGraph.client.placeStops(p.slug) }
+        val r = runCatching { AppGraph.client.placeStops(p) }
         stops = r.getOrNull(); failed = r.isFailure
         busy = false
     }
 
     Column(Modifier.fillMaxSize()) {
-        SearchField(query, "Town, area or street", KeyboardCapitalization.Words) { query = it }
+        SearchField(query, "Town and stop, e.g. Bedford bus station", KeyboardCapitalization.Words) { query = it }
+        val o = outcome
         when {
             busy -> Loading()
             failed -> Message("Couldn't reach bustimes.org", "Check your connection and try again.")
             place != null && stops != null -> {
+                val shown = stops!!.filter { StopSearch.matches(it, filter) }
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Stops in ${place!!.name}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Lag.colors.ink)
-                    TextAction("All places", { place = null })
+                    Text("Stops in ${place!!.name}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.ink)
+                    if ((o?.places?.size ?: 0) > 1) TextAction("Other places", { place = null; filter = "" })
                 }
-                StopList(stops!!, null, onPicked)
+                FilterField(filter, "Filter ${stops!!.size} stops") { filter = it }
+                if (shown.isEmpty()) {
+                    Message("No stops match \"${filter.trim()}\"", "Try fewer words, or clear the filter to see every stop here.",
+                        action = { SecondaryButton("Show all stops", { filter = "" }) })
+                } else {
+                    StopList(shown, null, onPicked)
+                }
             }
-            places == null -> Message("Search for a place", "Then pick your stop from the list. Stops are named as on the timetable at the stop.")
-            places!!.isEmpty() -> Message("No places match \"${query.trim()}\"", "Try the name of the area or the nearest town, or use the stop code.")
+            o == null -> Message(
+                "Search by place, then stop",
+                "Type the town or area, optionally followed by the stop, like \"Bedford bus station\" or \"Piccadilly Gardens\".",
+            )
+            o.places.isEmpty() -> Message("No places match \"${query.trim()}\"", "Start with the town or area name, or use the stop code.")
             else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(places!!, key = { it.slug }) { p ->
-                    Row(Modifier.fillMaxWidth().clickable { place = p }.padding(horizontal = 20.dp, vertical = 14.dp)) {
-                        Text(p.name, style = MaterialTheme.typography.bodyLarge, color = Lag.colors.ink)
+                items(o.places, key = { it.slug }) { p ->
+                    Row(Modifier.fillMaxWidth().clickable { place = p; filter = o.filter }.padding(horizontal = 20.dp, vertical = 14.dp)) {
+                        Text(p.name, style = MaterialTheme.typography.bodyLarge, color = c.ink)
                     }
                     Divider(inset = 20)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun FilterField(value: String, hint: String, onChange: (String) -> Unit) {
+    val c = Lag.colors
+    OutlinedTextField(
+        value, onChange, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), singleLine = true,
+        placeholder = { Text(hint, color = c.inkFaint) },
+        textStyle = MaterialTheme.typography.bodyMedium,
+        shape = RoundedCornerShape(10.dp),
+        trailingIcon = if (value.isNotEmpty()) {
+            { TextAction("Clear", { onChange("") }, color = c.inkMuted) }
+        } else null,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, autoCorrectEnabled = false),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = c.brand, unfocusedBorderColor = c.line,
+            focusedContainerColor = c.surface, unfocusedContainerColor = c.surface,
+        ),
+    )
 }
 
 @Composable
