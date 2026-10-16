@@ -82,7 +82,7 @@ object OneOffLogic {
         var alert = false
         val eta = trip.expectedArrival ?: trip.scheduledArrival
         val nextIsMine = trip.departed && (trip.nextStop == trip.to.atco || (toIdx > 0 && nextIdx == toIdx))
-        if (!trip.notifiedNext && (nextIsMine || (trip.departed && eta != null && (eta - nowS) in 0L..150L))) {
+        if (!trip.notifiedNext && (nextIsMine || (trip.departed && eta != null && (eta - nowS) in 0L..60L))) {
             alert = true
             trip = trip.copy(notifiedNext = true)
         }
