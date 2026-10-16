@@ -53,18 +53,35 @@ class WatchService : Service() {
         try {
             while (true) {
                 wakeLock?.acquire(10 * 60 * 1000L)
-                val r = runCatching { watcher.tick(Clock.System.now()) }.getOrElse {
+                val now = Clock.System.now()
+                val r = runCatching { watcher.tick(now) }.getOrElse {
                     Log.w("Lagcoach", "tick failed", it)
                     null
                 }
-                if (r != null) {
-                    if (r.active.isEmpty()) break
-                    r.alerts.forEach { Notifier.alert(this, it) }
-                    val title = if (r.active.size == 1) r.active[0].first.label else "Watching ${r.active.size} journeys"
-                    val text = r.active.joinToString("\n") { (w, s) -> if (r.active.size == 1) s else "${w.label}: $s" }
-                    Notifier.updateOngoing(this, title, text)
+                val t = runCatching { AppGraph.tracker.tick(now) }.getOrElse {
+                    Log.w("Lagcoach", "trip tick failed", it)
+                    null
                 }
-                delay(AppGraph.repo.data.value.settings.pollSeconds.coerceIn(20, 600) * 1000L)
+                val tripActive = AppGraph.repo.data.value.activeTrip != null
+                if (r != null && r.active.isEmpty() && !tripActive && t?.trip == null) break
+                r?.alerts?.forEach { Notifier.alert(this, it) }
+                t?.trip?.let { if (t.nextStopAlert) Notifier.nextStop(this, it) }
+                t?.ended?.let { Notifier.tripEnded(this, it) }
+
+                val lines = mutableListOf<String>()
+                var title = "Watching your journey"
+                t?.trip?.let { trip ->
+                    title = "${trip.line} to ${trip.to.name.substringBefore(" (")}"
+                    lines += Notifier.tripSummary(trip)
+                }
+                r?.active?.let { act ->
+                    if (t?.trip == null) title = if (act.size == 1) act[0].first.label else "Watching ${act.size} journeys"
+                    act.forEach { (w, s) -> lines += if (act.size == 1 && t?.trip == null) s else "${w.label}: $s" }
+                }
+                if (lines.isNotEmpty()) Notifier.updateOngoing(this, title, lines.joinToString("\n"))
+                // Follow a bus you're on more closely than a commute window.
+                val poll = AppGraph.repo.data.value.settings.pollSeconds.coerceIn(20, 600)
+                delay((if (tripActive) minOf(poll, 30) else poll) * 1000L)
             }
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()

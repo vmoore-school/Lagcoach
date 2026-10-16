@@ -70,6 +70,52 @@ object Notifier {
         post(ctx, a.notificationKey.hashCode() and 0x7FFFFFFF or 0x100) { n }
     }
 
+    fun tripSummary(t: app.lagcoach.model.OneOffTrip): String {
+        val eta = (t.expectedArrival ?: t.scheduledArrival)?.let { app.lagcoach.engine.Schedule.hhmm(kotlin.time.Instant.fromEpochSeconds(it)) }
+        val next = t.stops.firstOrNull { it.atco == t.nextStop }?.name
+        return when {
+            !t.departed -> "Waiting for the bus" + (t.expectedDeparture ?: t.scheduledDeparture)?.let { " · due ${app.lagcoach.engine.Schedule.hhmm(kotlin.time.Instant.fromEpochSeconds(it))}" }.orEmpty()
+            next != null -> "Next: $next" + (eta?.let { " · arrive $it" } ?: "")
+            else -> eta?.let { "Arrive $it" } ?: "Following the bus"
+        }
+    }
+
+    fun nextStop(ctx: Context, t: app.lagcoach.model.OneOffTrip) {
+        val n = NotificationCompat.Builder(ctx, CH_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(BRAND)
+            .setContentTitle("Your stop is next")
+            .setContentText(t.to.name)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(openApp(ctx))
+            .setTimeoutAfter(30 * 60 * 1000L)
+            .build()
+        post(ctx, 3) { n }
+    }
+
+    fun tripEnded(ctx: Context, r: app.lagcoach.model.OneOffRecord) {
+        if (r.end != app.lagcoach.model.TripEnd.Arrived) return
+        val delay = r.arrivalDelayMinutes
+        val text = when {
+            delay == null -> "Logged in your one-off trips."
+            delay >= 2 -> "$delay min later than the timetable. Logged in your one-off trips."
+            delay <= -2 -> "${-delay} min early. Logged in your one-off trips."
+            else -> "On time. Logged in your one-off trips."
+        }
+        val n = NotificationCompat.Builder(ctx, CH_WATCHING)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(BRAND)
+            .setContentTitle("Arrived at ${r.toName.substringBefore(" (")}")
+            .setContentText(text)
+            .setAutoCancel(true)
+            .setContentIntent(openApp(ctx))
+            .setTimeoutAfter(20 * 60 * 1000L)
+            .build()
+        post(ctx, 3) { n }
+    }
+
     fun test(ctx: Context) {
         val n = NotificationCompat.Builder(ctx, CH_ALERTS)
             .setSmallIcon(R.drawable.ic_notification)

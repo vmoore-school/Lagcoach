@@ -60,4 +60,7 @@ object AppGraph {
     lateinit var platform: Platform
     val client: BusTimesClient by lazy { BusTimesClient() }
     val live = LiveStatus()
+    /** For work that must outlive the screen that started it. */
+    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+    val tracker: app.lagcoach.engine.OneOffTracker by lazy { app.lagcoach.engine.OneOffTracker(repo, client) }
 }

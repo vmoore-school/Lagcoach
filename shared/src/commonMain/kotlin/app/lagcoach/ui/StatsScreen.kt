@@ -1,6 +1,9 @@
 package app.lagcoach.ui
 
 import androidx.compose.foundation.Canvas
+import app.lagcoach.model.roundHalfAway
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +66,7 @@ fun StatsScreen() {
     val obs by AppGraph.repo.observations.collectAsState()
     var range by remember { mutableStateOf(Range.Month) }
     var watchId by remember { mutableStateOf<String?>(null) }
+    var oneOffMode by remember { mutableStateOf(false) }
     val now = rememberNow(60_000)
 
     val since = range.days?.let { Clock.System.todayIn(UkZone).minus(DatePeriod(days = it - 1)).atStartOfDayIn(UkZone) }
@@ -73,8 +77,20 @@ fun StatsScreen() {
         item {
             LagHeader("Stats", subtitle = "How your buses have actually run", below = {
                 Spacer(Modifier.height(16.dp))
-                Segmented(Range.entries.map { it.label }, range.ordinal) { range = Range.entries[it] }
+                Segmented(listOf("Journeys", "One-off trips"), if (oneOffMode) 1 else 0) { oneOffMode = it == 1 }
             })
+        }
+        item {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Range.entries.forEach { r -> ChoiceChip(r.label, range == r) { range = r } }
+            }
+        }
+        if (oneOffMode) {
+            oneOffStats(since)
+            return@LazyColumn
         }
         if (data.watches.size > 1) {
             item {
@@ -365,4 +381,86 @@ private fun dayLabel(d: LocalDate): String {
     val dow = d.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
     val mon = d.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
     return "$dow ${d.day} $mon"
+}
+
+
+private fun androidx.compose.foundation.lazy.LazyListScope.oneOffStats(since: kotlin.time.Instant?) {
+    item { OneOffStats(since) }
+}
+
+@Composable
+private fun OneOffStats(since: kotlin.time.Instant?) {
+    val c = Lag.colors
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val all by AppGraph.repo.oneOffs.collectAsState()
+    val trips = all.filter { since == null || it.startedAt >= since.epochSeconds }.sortedByDescending { it.startedAt }
+    var deleting by remember { mutableStateOf<app.lagcoach.model.OneOffRecord?>(null) }
+
+    if (trips.isEmpty()) {
+        Message(
+            "No one-off trips yet",
+            "Tap a bus on the map, or a departure on any stop's board, and choose where you're getting off. " +
+                "Lagcoach follows it there, tells you when your stop is next, and logs the trip here.",
+        )
+        return
+    }
+    val delays = trips.mapNotNull { it.arrivalDelayMinutes }
+    val onTime = delays.count { it < Punctuality.LATE_FROM_MIN }
+    val ride = trips.mapNotNull { it.rideMinutes }.filter { it in 0..600 }.sum()
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Tile("Trips", "${trips.size}", "${trips.count { it.end == app.lagcoach.model.TripEnd.Arrived }} followed to the stop", Modifier.weight(1f))
+            Tile("Time on buses", if (ride >= 60) "${ride / 60} h ${ride % 60} m" else "$ride min", "in total", Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Tile("Arrived on time", if (delays.isEmpty()) "–" else "${roundHalfAway(onTime * 100.0 / delays.size)}%", "${onTime} of ${delays.size}", Modifier.weight(1f))
+            Tile("Arrival delay", if (delays.isEmpty()) "–" else formatDelay(delays.average()), "average", Modifier.weight(1f))
+        }
+        SectionLabel("Trips")
+        Panel(padding = PaddingValues(0.dp)) {
+            trips.forEachIndexed { i, t ->
+                if (i > 0) Divider(inset = 16)
+                Row(
+                    Modifier.fillMaxWidth().clickable { deleting = t }.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    RouteBadge(t.line)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            (t.fromName?.substringBefore(" (")?.let { "$it → " } ?: "") + t.toName.substringBefore(" ("),
+                            style = MaterialTheme.typography.titleSmall, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
+                        val day = runCatching { LocalDate.parse(t.date) }.getOrNull()?.let { dayLabel(it) } ?: t.date
+                        val dep = (t.actualDeparture ?: t.scheduledDeparture)?.let { " · left ${app.lagcoach.engine.Schedule.hhmm(kotlin.time.Instant.fromEpochSeconds(it))}" } ?: ""
+                        Text("$day$dep", style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM), color = c.inkMuted)
+                        if (t.end != app.lagcoach.model.TripEnd.Arrived) {
+                            Text(if (t.end == app.lagcoach.model.TripEnd.Stopped) "Stopped tracking early" else "Lost track of the bus", style = MaterialTheme.typography.bodySmall, color = c.inkFaint)
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            t.actualArrival?.let { app.lagcoach.engine.Schedule.hhmm(kotlin.time.Instant.fromEpochSeconds(it)) } ?: "–",
+                            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = TNUM), color = c.ink,
+                        )
+                        t.arrivalDelayMinutes?.let { StatusTag(delayText(it), delayTone(it)) }
+                    }
+                }
+            }
+        }
+        Text(
+            "Arrival is the last live time shown at your stop before the bus reached it. Tap a trip to remove it.",
+            style = MaterialTheme.typography.bodySmall, color = c.inkFaint,
+        )
+    }
+    deleting?.let { t ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deleting = null },
+            containerColor = c.surface,
+            title = { Text("Remove this trip?") },
+            text = { Text("The ${t.line} to ${t.toName} will be removed from your one-off trips.") },
+            confirmButton = { TextAction("Remove", { scope.launch { AppGraph.repo.deleteOneOff(t.id) }; deleting = null }, color = c.bad) },
+            dismissButton = { TextAction("Cancel", { deleting = null }, color = c.inkMuted) },
+        )
+    }
 }

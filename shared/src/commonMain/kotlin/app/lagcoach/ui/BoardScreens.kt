@@ -48,48 +48,6 @@ import kotlinx.coroutines.delay
 import kotlin.time.Clock
 import kotlin.time.Instant
 
-@Composable
-fun LiveScreen(nav: Nav) {
-    val data by AppGraph.repo.data.collectAsState()
-    val c = Lag.colors
-    val saved = data.watches.flatMap { listOfNotNull(it.stop, it.destination) }.distinctBy { it.atco }
-    Column(Modifier.fillMaxSize()) {
-        LagHeader("Live times", subtitle = "Departures from any stop", below = {
-            Spacer(Modifier.height(16.dp))
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.surface)
-                    .clickable { nav.push(Screen.PickStop("Find a stop") { nav.push(Screen.Board(it)) }) }
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.Search, null, tint = c.inkMuted)
-                Spacer(Modifier.padding(start = 10.dp))
-                Text("Find a stop", style = MaterialTheme.typography.bodyLarge, color = c.inkMuted)
-            }
-        })
-        if (saved.isEmpty()) {
-            Message("Your stops will show here", "Stops from your saved journeys appear here for quick access.")
-        } else {
-            LazyColumn(contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)) {
-                item { SectionLabel("Your stops", Modifier.padding(horizontal = 16.dp)) }
-                item {
-                    Panel(Modifier.padding(horizontal = 16.dp), padding = PaddingValues(0.dp)) {
-                        saved.forEachIndexed { i, s ->
-                            if (i > 0) Divider(inset = 16)
-                            Row(
-                                Modifier.fillMaxWidth().clickable { nav.push(Screen.Board(s)) }.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(s.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** Keeps a stop's board fresh while on screen. */
 class BoardLoader {
     var departures by mutableStateOf<List<Departure>?>(null)
@@ -154,12 +112,12 @@ fun BoardScreen(nav: Nav, stop: StopRef, initialLines: List<String>) {
                 else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     board.error?.let { item { Text("Showing older times: $it", Modifier.padding(16.dp), color = c.warn, style = MaterialTheme.typography.bodySmall) } }
                     items(shown, key = { it.key }) { d ->
-                        DepartureRow(d)
+                        DepartureRow(d, onClick = { nav.push(Screen.TrackSetup(app.lagcoach.engine.TrackSource.FromStop(stop, d))) })
                         Divider(inset = 72)
                     }
                     item {
                         Text(
-                            "Live times come from operators' vehicle tracking via bustimes.org. \"Timetable\" means no live tracking yet.",
+                            "Tap a bus to track it to where you're getting off. Live times come from operators' vehicle tracking via bustimes.org. \"Timetable\" means no live tracking yet.",
                             Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = c.inkFaint,
                         )
                     }

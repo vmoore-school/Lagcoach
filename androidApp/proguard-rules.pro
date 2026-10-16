@@ -5,6 +5,9 @@
     *** Companion;
     kotlinx.serialization.KSerializer serializer(...);
 }
+# MapLibre (JNI)
+-keep class org.maplibre.** { *; }
+-dontwarn org.maplibre.**
 # Ktor / OkHttp optional deps
 -dontwarn org.slf4j.**
 -dontwarn org.conscrypt.**

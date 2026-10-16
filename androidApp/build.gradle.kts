@@ -46,10 +46,13 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // The map's native code is per-ABI; phones are all arm64 now.
+            ndk { abiFilters += "arm64-v8a" }
             val release = signingConfigs.getByName("release")
             signingConfig = if (release.storeFile != null) release else signingConfigs.getByName("debug")
         }
         debug {
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") } // x86_64 for the emulator
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }

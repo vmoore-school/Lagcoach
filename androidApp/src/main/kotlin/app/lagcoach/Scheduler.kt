@@ -25,7 +25,7 @@ object Scheduler {
     fun reschedule(ctx: Context) {
         val now = Clock.System.now()
         val watches = AppGraph.repo.data.value.watches
-        val anyActive = watches.any { Schedule.activeWindow(it, now) != null }
+        val anyActive = watches.any { Schedule.activeWindow(it, now) != null } || AppGraph.repo.data.value.activeTrip != null
         val next = if (anyActive) now + 5.minutes else watches.mapNotNull { Schedule.nextMonitorStart(it, now) }.minOrNull()
 
         val am = ctx.getSystemService(AlarmManager::class.java)

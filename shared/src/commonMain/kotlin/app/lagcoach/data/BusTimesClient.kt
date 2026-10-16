@@ -37,6 +37,35 @@ data class TripStop(val stop: StopRef, val time: LocalTime?)
 
 data class Place(val name: String, val slug: String)
 
+data class BBox(val south: Double, val west: Double, val north: Double, val east: Double) {
+    fun query() = "ymax=$north&xmax=$east&ymin=$south&xmin=$west"
+    companion object {
+        fun around(lat: Double, lon: Double, metres: Double): BBox {
+            val dLat = metres / 111_320.0
+            val dLon = metres / (111_320.0 * kotlin.math.cos(lat * kotlin.math.PI / 180))
+            return BBox(lat - dLat, lon - dLon, lat + dLat, lon + dLon)
+        }
+    }
+}
+
+/** A bus currently reporting its position. */
+data class LiveVehicle(
+    val id: Long,
+    val journeyId: Long?,
+    val tripId: Long?,
+    val line: String,
+    val destination: String,
+    val lat: Double,
+    val lon: Double,
+    val heading: Int?,
+    /** Seconds behind (positive) or ahead of schedule, when known. */
+    val delaySeconds: Long?,
+    val nextStop: String?,
+    val prevStop: String?,
+    val name: String?,
+    val updated: String?,
+)
+
 /**
  * Thin client for bustimes.org. Departure boards are HTML (there is no JSON departures
  * endpoint); everything else uses the public JSON API. Requests are kept small and
@@ -89,11 +118,38 @@ class BusTimesClient(
     }
 
     /** Stops inside a small box around a point, nearest first. */
-    suspend fun nearbyStops(lat: Double, lon: Double, radiusMetres: Double = 500.0): List<StopRef> {
-        val dLat = radiusMetres / 111_320.0
-        val dLon = radiusMetres / (111_320.0 * kotlin.math.cos(lat * kotlin.math.PI / 180))
-        val url = "$base/stops.json?ymax=${lat + dLat}&xmax=${lon + dLon}&ymin=${lat - dLat}&xmin=${lon - dLon}"
-        val body = json.parseToJsonElement(getText(url)).jsonObject
+    suspend fun nearbyStops(lat: Double, lon: Double, radiusMetres: Double = 500.0): List<StopRef> =
+        stopsIn(BBox.around(lat, lon, radiusMetres)).sortedBy { s -> distanceMetres(lat, lon, s.lat ?: lat, s.lon ?: lon) }
+
+    /** Buses reporting a position inside [box]. */
+    suspend fun vehiclesIn(box: BBox): List<LiveVehicle> {
+        val arr = json.parseToJsonElement(getText("$base/vehicles.json?${box.query()}")) as? JsonArray ?: return emptyList()
+        return arr.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            val coords = o["coordinates"] as? JsonArray ?: return@mapNotNull null
+            val service = o["service"] as? JsonObject
+            val progress = o["progress"] as? JsonObject
+            LiveVehicle(
+                id = o["id"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null,
+                journeyId = o["journey_id"]?.jsonPrimitive?.longOrNull,
+                tripId = o["trip_id"]?.jsonPrimitive?.longOrNull,
+                line = service?.str("line_name") ?: return@mapNotNull null,
+                destination = o.str("destination") ?: "",
+                lon = coords.getOrNull(0)?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                lat = coords.getOrNull(1)?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                heading = o["heading"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()?.toInt(),
+                delaySeconds = o["delay"]?.jsonPrimitive?.longOrNull,
+                nextStop = progress?.str("next_stop"),
+                prevStop = progress?.str("prev_stop"),
+                name = (o["vehicle"] as? JsonObject)?.str("name"),
+                updated = o.str("datetime"),
+            )
+        }
+    }
+
+    /** Stops inside [box] (unsorted). */
+    suspend fun stopsIn(box: BBox): List<StopRef> {
+        val body = json.parseToJsonElement(getText("$base/stops.json?${box.query()}")).jsonObject
         val stops = body["features"]?.jsonArray.orEmpty().mapNotNull { f ->
             val fo = f.jsonObject
             val coords = fo["geometry"]?.jsonObject?.get("coordinates")?.jsonArray ?: return@mapNotNull null
@@ -108,7 +164,7 @@ class BusTimesClient(
                 lines = (p["services"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
             )
         }
-        return stops.sortedBy { s -> distanceMetres(lat, lon, s.lat ?: lat, s.lon ?: lon) }
+        return stops
     }
 
     /** bustimes.org search: returns matching places (localities). */

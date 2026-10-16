@@ -8,6 +8,13 @@ app checks live times and alerts you; afterwards it keeps a record so the Stats 
 how often your buses are late and when they really turn up (and, if you add where you get
 off, roughly when you arrive).
 
+**One-off trips:** on the map (or any stop's departure board) tap a bus, say where you're
+getting off, and Lagcoach follows it there: live arrival time, next stop, and a notification
+when your stop is next. Finished trips appear under Stats → One-off trips.
+
+The map uses [OpenStreetMap](https://www.openstreetmap.org/copyright) data via
+[OpenFreeMap](https://openfreemap.org) tiles, drawn with MapLibre — no Google services or API keys.
+
 Live times come from [bustimes.org](https://bustimes.org), which collects operators' open
 vehicle-tracking data for Great Britain. Lagcoach isn't affiliated with Stagecoach or
 bustimes.org.
@@ -29,7 +36,7 @@ by default) until the window closes. That's why it asks for:
   checking.
 - **Unrestricted battery**, so Doze doesn't pause checks with the screen off.
 - **Alarms & reminders**, so checking starts on time (granted automatically on Android 13+).
-- **Location** (optional), only when you tap "Use my location" to find nearby stops.
+- **Location** (optional), only when you tap the location button or "Use my location".
 
 On GrapheneOS also leave the **Network** permission on. Nothing runs outside your windows.
 
@@ -39,6 +46,9 @@ On GrapheneOS also leave the **Network** permission on. Nothing runs outside you
 ./gradlew :shared:testDebugUnitTest      # parser + alert logic tests
 ./gradlew :androidApp:assembleDebug
 ```
+
+Release APKs contain arm64 native code only (all current phones); debug builds add x86_64 for
+the emulator.
 
 Kotlin Multiplatform + Compose Multiplatform. All UI and logic is in `shared/src/commonMain`;
 `androidApp` holds the Android glue (alarms, foreground service, notifications). An iOS target

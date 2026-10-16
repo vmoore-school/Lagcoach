@@ -2,6 +2,8 @@ package app.lagcoach.data
 
 import app.lagcoach.model.AppData
 import app.lagcoach.model.Observation
+import app.lagcoach.model.OneOffRecord
+import app.lagcoach.model.OneOffTrip
 import app.lagcoach.model.Settings
 import app.lagcoach.model.Watch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,32 @@ class Repository {
     private val _observations = MutableStateFlow(loadObservations())
     val observations: StateFlow<List<Observation>> = _observations.asStateFlow()
 
+    private val _oneOffs = MutableStateFlow(loadOneOffs())
+    val oneOffs: StateFlow<List<OneOffRecord>> = _oneOffs.asStateFlow()
+
+    private fun loadOneOffs(): List<OneOffRecord> =
+        FileIO.read(ONE_OFFS)?.let {
+            runCatching { json.decodeFromString(ListSerializer(OneOffRecord.serializer()), it) }.getOrNull()
+        } ?: emptyList()
+
+    /** Start (or replace) the trip being tracked; null stops tracking. */
+    suspend fun setActiveTrip(t: OneOffTrip?) {
+        edit { it.copy(activeTrip = t) }
+        onWatchesChanged?.invoke()
+    }
+
+    suspend fun updateActiveTrip(f: (OneOffTrip) -> OneOffTrip) = edit { d -> d.copy(activeTrip = d.activeTrip?.let(f)) }
+
+    suspend fun addOneOff(r: OneOffRecord) = mutex.withLock {
+        _oneOffs.value = (_oneOffs.value.filterNot { it.id == r.id } + r).sortedBy { it.startedAt }
+        FileIO.write(ONE_OFFS, json.encodeToString(ListSerializer(OneOffRecord.serializer()), _oneOffs.value))
+    }
+
+    suspend fun deleteOneOff(id: String) = mutex.withLock {
+        _oneOffs.value = _oneOffs.value.filterNot { it.id == id }
+        FileIO.write(ONE_OFFS, json.encodeToString(ListSerializer(OneOffRecord.serializer()), _oneOffs.value))
+    }
+
     /** Called whenever watches change so the platform can reschedule alarms. */
     var onWatchesChanged: (() -> Unit)? = null
 
@@ -50,6 +78,7 @@ class Repository {
     fun reload() {
         _data.value = load()
         _observations.value = loadObservations()
+        _oneOffs.value = loadOneOffs()
     }
 
     suspend fun updateSettings(f: (Settings) -> Settings) = edit { it.copy(settings = f(it.settings)) }
@@ -93,6 +122,8 @@ class Repository {
     suspend fun clearObservations() = mutex.withLock {
         _observations.value = emptyList()
         saveObservations()
+        _oneOffs.value = emptyList()
+        FileIO.write(ONE_OFFS, "[]")
     }
 
     private fun saveObservations() {
@@ -102,5 +133,6 @@ class Repository {
     companion object {
         private const val CONFIG = "lagcoach.json"
         private const val OBS = "observations.json"
+        private const val ONE_OFFS = "oneoffs.json"
     }
 }

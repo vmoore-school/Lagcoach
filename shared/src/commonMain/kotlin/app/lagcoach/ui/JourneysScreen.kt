@@ -82,6 +82,7 @@ fun JourneysScreen(nav: Nav) {
                 },
             )
         }
+        data.activeTrip?.let { t -> item { ActiveTripCard(t) { nav.push(Screen.TrackTrip) } } }
         if (problems.isNotEmpty()) {
             item {
                 Panel(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {

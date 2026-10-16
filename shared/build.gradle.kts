@@ -37,6 +37,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.maplibre)
             implementation(libs.kotlinx.coroutines.android)
         }
         commonTest.dependencies {

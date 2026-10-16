@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.DepartureBoard
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -35,7 +35,7 @@ import app.lagcoach.model.StopRef
 
 enum class Tab(val label: String, val icon: ImageVector) {
     Journeys("Journeys", Icons.Outlined.NotificationsActive),
-    Live("Live times", Icons.Outlined.DepartureBoard),
+    Live("Map", Icons.Outlined.Map),
     Stats("Stats", Icons.Outlined.BarChart),
     Settings("Settings", Icons.Outlined.Settings),
 }
@@ -45,6 +45,8 @@ sealed interface Screen {
     data class PickStop(val title: String, val onPicked: (StopRef) -> Unit) : Screen
     data class Board(val stop: StopRef, val lines: List<String> = emptyList()) : Screen
     data class WatchDetail(val watchId: String) : Screen
+    data class TrackSetup(val src: app.lagcoach.engine.TrackSource) : Screen
+    data object TrackTrip : Screen
 }
 
 /** Minimal back stack: tabs at the root, full-screen pages pushed on top. */
@@ -77,7 +79,7 @@ fun App() {
                     Box(Modifier.weight(1f)) {
                         when (nav.tab) {
                             Tab.Journeys -> JourneysScreen(nav)
-                            Tab.Live -> LiveScreen(nav)
+                            Tab.Live -> MapScreen(nav)
                             Tab.Stats -> StatsScreen()
                             Tab.Settings -> SettingsScreen()
                         }
@@ -88,6 +90,8 @@ fun App() {
                 is Screen.PickStop -> StopPickerScreen(top.title, onBack = nav::pop) { nav.pop(); top.onPicked(it) }
                 is Screen.Board -> BoardScreen(nav, top.stop, top.lines)
                 is Screen.WatchDetail -> WatchDetailScreen(nav, top.watchId)
+                is Screen.TrackSetup -> TrackSetupScreen(nav, top.src)
+                Screen.TrackTrip -> TrackTripScreen(nav)
             }
             Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(c.header))
         }

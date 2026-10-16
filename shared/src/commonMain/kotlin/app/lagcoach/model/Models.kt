@@ -62,6 +62,10 @@ data class Settings(
     val onboarded: Boolean = false,
     /** Use the phone's wallpaper-based Material You colours instead of the Stagecoach palette. */
     val dynamicColor: Boolean = false,
+    /** Where the map was last left. */
+    val mapLat: Double? = null,
+    val mapLon: Double? = null,
+    val mapZoom: Double? = null,
 )
 
 /** One live/scheduled row from a stop's departure board. */
@@ -123,4 +127,69 @@ internal fun roundHalfAway(x: Double): Int = if (x >= 0) (x + 0.5).toInt() else 
 data class AppData(
     val settings: Settings = Settings(),
     val watches: List<Watch> = emptyList(),
+    val activeTrip: OneOffTrip? = null,
 )
+
+/** A calling point on a tracked trip, with its timetabled time ("HH:MM"). */
+@Serializable
+data class RouteStop(
+    val atco: String,
+    val name: String,
+    val lat: Double? = null,
+    val lon: Double? = null,
+    val time: String? = null,
+)
+
+/** The bus you're riding right now, followed until it reaches your stop. */
+@Serializable
+data class OneOffTrip(
+    val id: String,
+    val line: String,
+    val headsign: String,
+    val date: String,
+    val tripId: Long? = null,
+    val journeyId: Long? = null,
+    val vehicle: String? = null,
+    /** Where you got on; null when picked from the map while already aboard. */
+    val from: StopRef? = null,
+    val to: StopRef,
+    /** Calling points from boarding (or the bus's position) to your stop. */
+    val stops: List<RouteStop> = emptyList(),
+    val scheduledDeparture: Long? = null,
+    val expectedDeparture: Long? = null,
+    val departed: Boolean = false,
+    val scheduledArrival: Long? = null,
+    val expectedArrival: Long? = null,
+    val startedAt: Long,
+    val lastLat: Double? = null,
+    val lastLon: Double? = null,
+    val nextStop: String? = null,
+    val delaySeconds: Long? = null,
+    val notifiedNext: Boolean = false,
+    val lastUpdate: Long = 0,
+)
+
+@Serializable
+enum class TripEnd { Arrived, Stopped, Lost }
+
+/** A finished one-off trip, for the "One-off trips" stats. */
+@Serializable
+data class OneOffRecord(
+    val id: String,
+    val date: String,
+    val line: String,
+    val headsign: String,
+    val fromName: String? = null,
+    val toName: String,
+    val vehicle: String? = null,
+    val scheduledDeparture: Long? = null,
+    val actualDeparture: Long? = null,
+    val scheduledArrival: Long? = null,
+    val actualArrival: Long? = null,
+    val startedAt: Long,
+    val end: TripEnd,
+) {
+    val arrivalDelayMinutes: Int? get() =
+        if (scheduledArrival != null && actualArrival != null) roundHalfAway((actualArrival - scheduledArrival) / 60.0) else null
+    val rideMinutes: Int? get() = actualArrival?.let { a -> (actualDeparture ?: startedAt).let { ((a - it) / 60).toInt() } }
+}
