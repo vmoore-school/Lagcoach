@@ -98,6 +98,12 @@ data class Observation(
     /** Scheduled minutes from boarding stop to the watch's destination stop. */
     val travelMinutes: Int? = null,
     val lastSeen: Long = 0,
+    /** Timetabled time at the destination stop. */
+    val arrivalScheduled: Long? = null,
+    /** Last live estimate at the destination stop, read from its own board. */
+    val arrivalExpected: Long? = null,
+    val tripId: Long? = null,
+    val journeyId: Long? = null,
     val notifiedLateMin: Int? = null,
     val notifiedCancelled: Boolean = false,
     val notifiedIntoWindow: Boolean = false,
@@ -105,7 +111,10 @@ data class Observation(
 ) {
     val key: String get() = "$watchId|$line|$scheduled"
     val delayMinutes: Int? get() = expected?.let { ((it - scheduled) / 60.0).let(::roundHalfAway) }
-    val estimatedArrival: Long? get() = travelMinutes?.let { (expected ?: scheduled) + it * 60L }
+    /** Best arrival time we have: measured at the destination, else departure + timetabled journey. */
+    val estimatedArrival: Long? get() = arrivalExpected ?: travelMinutes?.let { (expected ?: scheduled) + it * 60L }
+    val plannedArrival: Long? get() = arrivalScheduled ?: travelMinutes?.let { scheduled + it * 60L }
+    val arrivalMeasured: Boolean get() = arrivalExpected != null
 }
 
 internal fun roundHalfAway(x: Double): Int = if (x >= 0) (x + 0.5).toInt() else -((-x + 0.5).toInt())

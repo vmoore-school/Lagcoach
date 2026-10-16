@@ -30,19 +30,24 @@ class Watcher(
 
     suspend fun tick(now: Instant): TickResult {
         val watches = repo.data.value.watches
+        val allObs = repo.observations.value
+        val todays = { w: Watch, window: WindowSpan ->
+            allObs.filter { it.watchId == w.id && it.date == window.date.toString() }
+        }
+        // After the window closes, a watch stays active only while a bus is still on its way.
         val active = watches.mapNotNull { w -> Schedule.activeWindow(w, now)?.let { w to it } }
+            .filter { (w, window) -> now <= window.end || ArrivalTracker.pending(todays(w, window), now).isNotEmpty() }
         live.retain(active.map { it.first.id }.toSet())
         if (active.isEmpty()) return TickResult(emptyList(), emptyList(), false)
 
         val boards = mutableMapOf<String, Result<List<Departure>>>()
-        for ((w, window) in active) {
-            if (w.stop.atco in boards) continue
-            boards[w.stop.atco] = runCatching {
-                val first = client.departures(w.stop.atco)
+        suspend fun board(atco: String, until: Instant?): Result<List<Departure>> = boards.getOrPut(atco) {
+            runCatching {
+                val first = client.departures(atco)
                 val last = first.departures.maxOfOrNull { it.scheduled }
                 // A busy stop may not list the whole window on one page.
-                if (first.nextPage != null && last != null && last < window.end) {
-                    val more = runCatching { client.departures(w.stop.atco, first.nextPage).departures }.getOrDefault(emptyList())
+                if (until != null && first.nextPage != null && last != null && last < until) {
+                    val more = runCatching { client.departures(atco, first.nextPage).departures }.getOrDefault(emptyList())
                     (first.departures + more).distinctBy { it.key }
                 } else first.departures
             }
@@ -52,27 +57,54 @@ class Watcher(
         val statuses = mutableListOf<Pair<Watch, String>>()
         val changed = mutableListOf<Observation>()
         var anyError = false
-        val allObs = repo.observations.value
 
         for ((w, window) in active) {
-            val board = boards.getValue(w.stop.atco)
-            val deps = board.getOrNull()
-            if (deps == null) {
-                anyError = true
-                val prev = live.state.value[w.id]
-                val msg = "Can't reach bustimes.org, retrying"
-                live.put(WatchLive(w.id, now.epochSeconds, prev?.relevant.orEmpty(), prev?.summary ?: msg, msg))
-                statuses += w to (prev?.summary?.let { "$it (offline)" } ?: msg)
-                continue
-            }
             val existing = allObs.filter { it.watchId == w.id }.associateBy { it.key }
-            if (w.destination != null) resolveTravel(w, deps.filter { w.matchesLine(it.line) && it.scheduled <= window.end }, existing)
-            val result = WatchEngine.evaluate(w, window, deps, now, existing) { d -> travelCache[travelKey(w, d)] }
-            changed += result.observations
-            alerts += result.alerts
-            val summary = WatchEngine.summary(w, result.relevant, now)
-            live.put(WatchLive(w.id, now.epochSeconds, result.relevant, summary))
-            statuses += w to summary
+            val inWindow = now <= window.end
+            var relevant = live.state.value[w.id]?.relevant.orEmpty()
+            var summary: String? = null
+
+            if (inWindow) {
+                val deps = board(w.stop.atco, window.end).getOrNull()
+                if (deps == null) {
+                    anyError = true
+                    val prev = live.state.value[w.id]
+                    val msg = "Can't reach bustimes.org, retrying"
+                    live.put(WatchLive(w.id, now.epochSeconds, prev?.relevant.orEmpty(), prev?.summary ?: msg, msg))
+                    statuses += w to (prev?.summary?.let { "$it (offline)" } ?: msg)
+                    continue
+                }
+                if (w.destination != null) resolveTravel(w, deps.filter { w.matchesLine(it.line) && it.scheduled <= window.end }, existing)
+                val result = WatchEngine.evaluate(w, window, deps, now, existing) { d -> travelCache[travelKey(w, d)] }
+                changed += result.observations
+                alerts += result.alerts
+                relevant = result.relevant
+                summary = WatchEngine.summary(w, result.relevant, now)
+            }
+
+            // Follow buses that have left to the destination stop.
+            val dest = w.destination
+            if (dest != null) {
+                val latest = (existing + changed.filter { it.watchId == w.id }.associateBy { it.key }).values
+                    .filter { it.date == window.date.toString() }
+                val pending = ArrivalTracker.pending(latest, now)
+                if (pending.isNotEmpty()) {
+                    board(dest.atco, null).getOrNull()?.let { destBoard ->
+                        val updated = ArrivalTracker.update(pending, destBoard, now)
+                        changed.removeAll { c -> updated.any { it.key == c.key } }
+                        changed += updated
+                    }
+                    if (!inWindow) {
+                        val next = pending.minByOrNull { it.scheduled }!!
+                        val nextNow = changed.firstOrNull { it.key == next.key } ?: next
+                        val eta = nextNow.estimatedArrival?.let { Schedule.hhmm(Instant.fromEpochSeconds(it)) }
+                        summary = "${next.line} on its way" + (eta?.let { " · due at ${dest.name.substringBefore(" (")} $it" } ?: "")
+                    }
+                }
+            }
+            val s = summary ?: "Watching"
+            live.put(WatchLive(w.id, now.epochSeconds, relevant, s))
+            statuses += w to s
         }
         repo.upsertObservations(changed)
         return TickResult(alerts, statuses, anyError)

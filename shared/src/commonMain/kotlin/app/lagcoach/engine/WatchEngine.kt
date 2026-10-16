@@ -99,6 +99,8 @@ object WatchEngine {
                 inWindow = inWindow,
                 lastSeen = now.epochSeconds,
                 travelMinutes = prev?.travelMinutes ?: travelMinutes(d),
+                tripId = d.tripId ?: prev?.tripId,
+                journeyId = d.journeyId ?: prev?.journeyId,
             )
 
             // Don't nag about buses that have already gone.

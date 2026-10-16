@@ -33,8 +33,28 @@ data class SlotStats(
     /** Average estimated arrival at the journey's destination, minutes after midnight. */
     val avgArrivalMinutes: Double?,
     val scheduledArrivalMinutes: Int?,
+    val arrival: ArrivalStats? = null,
 ) {
     val avgDepartureMinutes: Double? get() = avgDelayMin?.let { scheduled.hour * 60 + scheduled.minute + it }
+}
+
+/** How a set of buses got on at the destination. */
+data class ArrivalStats(
+    val count: Int,
+    /** How many were timed at the destination stop itself rather than estimated. */
+    val measured: Int,
+    val onTime: Int,
+    val late: Int,
+    val avgDelayMin: Double?,
+    /** Average time on the bus, boarding stop to destination. */
+    val avgJourneyMin: Double?,
+    /** 9 in 10 arrivals were by this time (minutes after midnight). */
+    val planForMinutes: Double?,
+    val avgArrivalMinutes: Double?,
+    val earliestMinutes: Double?,
+    val latestMinutes: Double?,
+) {
+    val onTimePct: Int? get() = if (count == 0) null else roundHalfAway(onTime * 100.0 / count)
 }
 
 data class DayStats(val date: LocalDate, val count: Int, val avgDelayMin: Double?, val cancelled: Int, val late: Int)
@@ -49,6 +69,7 @@ data class Summary(
     val avgDelayMin: Double?,
     val slots: List<SlotStats>,
     val days: List<DayStats>,
+    val arrival: ArrivalStats? = null,
 ) {
     val onTime: Int get() = withLive - late - early
     val onTimePct: Int? get() = if (withLive == 0) null else roundHalfAway(onTime * 100.0 / withLive)
@@ -70,6 +91,7 @@ object StatsCalc {
                 watchId = k.first, line = k.second, scheduled = k.third, count = list.size, withLive = l.size,
                 avgDelayMin = d.averageOrNull(), late = d.count(Punctuality::isLate), early = d.count(Punctuality::isEarly),
                 cancelled = list.count { it.cancelled }, avgArrivalMinutes = arrivals.averageOrNull(), scheduledArrivalMinutes = schedArr,
+                arrival = arrivalStats(list),
             )
         }.sortedWith(compareBy({ it.scheduled }, { it.line }))
         val days = mine.groupBy { LocalDate.parse(it.date) }.map { (date, list) ->
@@ -86,6 +108,28 @@ object StatsCalc {
             avgDelayMin = delays.averageOrNull(),
             slots = slots,
             days = days,
+            arrival = arrivalStats(mine),
+        )
+    }
+
+    /** Arrivals count as on time up to 5 min 59 s after the timetable, like departures. */
+    fun arrivalStats(obs: List<Observation>): ArrivalStats? {
+        val done = obs.filter { !it.cancelled && it.estimatedArrival != null && (it.arrivalMeasured || it.expected != null) }
+        if (done.isEmpty()) return null
+        val delays = done.mapNotNull { o -> o.plannedArrival?.let { p -> (o.estimatedArrival!! - p) / 60.0 } }
+        val journeys = done.filter { it.arrivalMeasured }.map { (it.estimatedArrival!! - (it.expected ?: it.scheduled)) / 60.0 }
+        val clock = done.map { minutesOfDay(it.estimatedArrival!!, it.scheduled) }.sorted()
+        return ArrivalStats(
+            count = done.size,
+            measured = done.count { it.arrivalMeasured },
+            onTime = delays.count { roundHalfAway(it) < Punctuality.LATE_FROM_MIN },
+            late = delays.count { roundHalfAway(it) >= Punctuality.LATE_FROM_MIN },
+            avgDelayMin = delays.averageOrNull(),
+            avgJourneyMin = journeys.averageOrNull(),
+            planForMinutes = clock[(kotlin.math.ceil(clock.size * 0.9).toInt() - 1).coerceIn(0, clock.lastIndex)],
+            avgArrivalMinutes = clock.averageOrNull(),
+            earliestMinutes = clock.first(),
+            latestMinutes = clock.last(),
         )
     }
 

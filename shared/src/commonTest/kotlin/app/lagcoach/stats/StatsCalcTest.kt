@@ -56,3 +56,31 @@ class StatsCalcTest {
         assertNull(s.avgDelayMin)
     }
 }
+
+class ArrivalStatsTest {
+    private fun at(h: Int, m: Int, d: Int = 12) =
+        kotlinx.datetime.LocalDateTime(2026, 10, d, h, m).toInstant(app.lagcoach.model.UkZone).epochSeconds
+
+    private fun o(d: Int, depDelay: Int, arrival: Pair<Int, Int>?) = app.lagcoach.model.Observation(
+        watchId = "w", date = "2026-10-$d", line = "42", destination = "X", scheduled = at(7, 30, d),
+        expected = at(7, 30, d) + depDelay * 60L, travelMinutes = 25,
+        arrivalScheduled = at(7, 55, d), arrivalExpected = arrival?.let { at(it.first, it.second, d) },
+    )
+
+    @Test
+    fun measuredAndEstimatedArrivals() {
+        val a = StatsCalc.arrivalStats(
+            listOf(o(12, 2, 7 to 58), o(13, 0, 8 to 5), o(14, 4, null), o(15, 1, 7 to 55)),
+        )!!
+        assertEquals(4, a.count)
+        assertEquals(3, a.measured)
+        // delays: +3, +10, +4 (estimated 07:59), 0
+        assertEquals(1, a.late)
+        assertEquals(3, a.onTime)
+        assertEquals(75, a.onTimePct)
+        assertEquals("08:05", formatClock(a.planForMinutes!!))
+        assertEquals("07:55", formatClock(a.earliestMinutes!!))
+        // journey times measured: 26, 35, 24
+        assertEquals((26 + 35 + 24) / 3.0, a.avgJourneyMin)
+    }
+}

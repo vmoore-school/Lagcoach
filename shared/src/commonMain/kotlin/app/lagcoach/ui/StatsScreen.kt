@@ -51,6 +51,7 @@ import kotlinx.datetime.minus
 import kotlinx.datetime.todayIn
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.time.Clock
 
 private enum class Range(val label: String, val days: Int?) { Week("7 days", 7), Month("30 days", 30), All("All time", null) }
@@ -120,10 +121,74 @@ fun StatsScreen() {
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "On time means leaving between 1 min early and 5 min 59 s late, the UK standard. " +
-                        "Times are the last live estimate before the bus reached your stop; arrivals are that plus the timetabled journey time.",
+                        "Times are the last live estimate before the bus reached your stop.",
                     style = MaterialTheme.typography.bodySmall, color = c.inkFaint,
                 )
             }
+        }
+        val arr = summary.arrival
+        val hasDestination = data.watches.filter { it.destination != null }.map { it.id }.toSet()
+        val withArrivals = summary.slots.filter { it.arrival != null && it.watchId in hasDestination }
+        if (arr != null && withArrivals.isNotEmpty()) {
+            item {
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    SectionLabel("Getting there")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Tile("Arrived on time", arr.onTimePct?.let { "$it%" } ?: "–", "${arr.onTime} of ${arr.count}", Modifier.weight(1f))
+                        Tile("Arrival delay", arr.avgDelayMin?.let { formatDelay(it) } ?: "–", "vs timetable", Modifier.weight(1f),
+                            tone = arr.avgDelayMin?.let { if (it >= Punctuality.LATE_FROM_MIN) Tone.Warn else null })
+                        Tile("On the bus", arr.avgJourneyMin?.let { "${it.roundToInt()} min" } ?: "–", "average", Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Panel(padding = PaddingValues(0.dp)) {
+                        val names = data.watches.associate { it.id to it }
+                        withArrivals.forEachIndexed { i, sl ->
+                            if (i > 0) Divider(inset = 16)
+                            ArrivalRow(sl, names[sl.watchId]?.destination?.name, sl.arrival!!)
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "\"Plan for\" is the time 9 in 10 of these buses had arrived by. Arrivals are timed from the live board at your " +
+                            "destination stop (${arr.measured} of ${arr.count}); the rest are estimated from the departure time plus the timetabled journey.",
+                        style = MaterialTheme.typography.bodySmall, color = c.inkFaint,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArrivalRow(s: SlotStats, destination: String?, a: app.lagcoach.stats.ArrivalStats) {
+    val c = Lag.colors
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
+        RouteBadge(s.line)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            val sched = "${s.scheduled.hour.toString().padStart(2, '0')}:${s.scheduled.minute.toString().padStart(2, '0')}"
+            Text("$sched bus", style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = TNUM), color = c.ink)
+            if (destination != null) {
+                Text("to ${destination.substringBefore(" (")}", style = MaterialTheme.typography.bodySmall, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            val parts = buildList {
+                a.avgArrivalMinutes?.let { add("usually ${formatClock(it)}") }
+                s.scheduledArrivalMinutes?.let { add("timetable ${formatClock(it.toDouble())}") }
+            }
+            Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM), color = c.inkMuted)
+            val range = if (a.earliestMinutes != null && a.latestMinutes != null && a.count > 1)
+                "between ${formatClock(a.earliestMinutes)} and ${formatClock(a.latestMinutes)}" else null
+            Text(
+                listOfNotNull(range, if (a.late > 0) "${a.late} late" else null).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM), color = c.inkFaint,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text("Plan for", style = MaterialTheme.typography.labelSmall, color = c.inkMuted)
+            Text(
+                a.planForMinutes?.let { formatClock(it) } ?: "–",
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = TNUM), color = c.ink,
+            )
         }
     }
 }
@@ -178,19 +243,6 @@ private fun SlotRow(s: SlotStats, destination: String?, showJourney: Boolean, jo
                 if (s.cancelled > 0) add("${s.cancelled} cancelled")
             }
             Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.inkMuted)
-            if (s.avgArrivalMinutes != null && destination != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Arrive ~${formatClock(s.avgArrivalMinutes)}" +
-                        (s.scheduledArrivalMinutes?.let { " · timetable ${formatClock(it.toDouble())}" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
-                    color = c.ink,
-                )
-                Text(
-                    "at ${destination.substringBefore(" (")}",
-                    style = MaterialTheme.typography.bodySmall, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(

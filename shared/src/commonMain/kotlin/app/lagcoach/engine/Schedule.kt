@@ -13,11 +13,21 @@ import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-data class WindowSpan(val date: LocalDate, val start: Instant, val end: Instant, val monitorFrom: Instant) {
+data class WindowSpan(
+    val date: LocalDate,
+    val start: Instant,
+    val end: Instant,
+    val monitorFrom: Instant,
+    /** With a destination set, keep following buses after the window until they arrive. */
+    val trackUntil: Instant = end,
+) {
     operator fun contains(t: Instant) = t >= start && t <= end
 }
 
 object Schedule {
+    /** Longest bus ride we'll follow to the destination after the window closes. */
+    val ARRIVAL_TRACKING = 120.minutes
+
     fun minutesToTime(m: Int): LocalTime = LocalTime((m / 60) % 24, m % 60)
 
     fun formatMinutes(m: Int): String = minutesToTime(m).let { "${pad(it.hour)}:${pad(it.minute)}" }
@@ -26,7 +36,8 @@ object Schedule {
         val start = LocalDateTime(date, minutesToTime(watch.windowStart)).toInstant(zone)
         val endDate = if (watch.windowEnd <= watch.windowStart) date.plus(DatePeriod(days = 1)) else date
         val end = LocalDateTime(endDate, minutesToTime(watch.windowEnd)).toInstant(zone)
-        return WindowSpan(date, start, end, start - watch.alerts.leadMinutes.minutes)
+        val trackUntil = if (watch.destination != null) end + ARRIVAL_TRACKING else end
+        return WindowSpan(date, start, end, start - watch.alerts.leadMinutes.minutes, trackUntil)
     }
 
     /** The window being monitored right now, if any. */
@@ -37,7 +48,7 @@ object Schedule {
         for (d in listOf(today.plus(DatePeriod(days = -1)), today)) {
             if (!watch.runsOn(d.dayOfWeek)) continue
             val w = windowOn(watch, d, zone)
-            if (now >= w.monitorFrom && now <= w.end) return w
+            if (now >= w.monitorFrom && now <= w.trackUntil) return w
         }
         return null
     }
