@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lagcoach mark: a clock running late, trailing three speed stripes
+     (a nod to a certain bus company's swoosh, deliberately not a copy). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M45.72,84.91 A32,32 0 0,1 45.72,23.09"
+        android:strokeColor="#0077C8" android:strokeWidth="3.4" android:strokeLineCap="round" />
+    <path android:pathData="M42.38,78.92 A27.5,27.5 0 0,1 42.38,29.08"
+        android:strokeColor="#FFA400" android:strokeWidth="3.4" android:strokeLineCap="round" />
+    <path android:pathData="M40.81,72.84 A23,23 0 0,1 40.81,35.16"
+        android:strokeColor="#ED2232" android:strokeWidth="3.4" android:strokeLineCap="round" />
+    <path android:pathData="M54,35 a19,19 0 1,0 0.001,0 Z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M54,54 L65.26,47.5" android:strokeColor="#051C2C"
+        android:strokeWidth="3" android:strokeLineCap="round" />
+    <path android:pathData="M54,54 L54.74,45.53" android:strokeColor="#051C2C"
+        android:strokeWidth="3.6" android:strokeLineCap="round" />
+    <path android:pathData="M54,51.6 a2.4,2.4 0 1,0 0.001,0 Z" android:fillColor="#ED2232" />
+</vector>

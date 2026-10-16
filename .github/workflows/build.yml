@@ -1,0 +1,100 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to publish releases on tags
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Work out version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          else
+            NAME="0.0.0-dev.${GITHUB_RUN_NUMBER}+${GITHUB_SHA::7}"
+          fi
+          # Run number only ever increases, so every build can update the previous one.
+          CODE=$((1000 + GITHUB_RUN_NUMBER))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Version $NAME ($CODE)"
+
+      - name: Unit tests
+        run: ./gradlew :shared:testDebugUnitTest --stacktrace
+
+      - name: Decode signing key
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_B64: ${{ secrets.LAGCOACH_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::No signing key secret; the APK will be debug-signed and can't update a release install."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "LAGCOACH_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          LAGCOACH_KEYSTORE_PASSWORD: ${{ secrets.LAGCOACH_KEYSTORE_PASSWORD }}
+          LAGCOACH_KEY_ALIAS: ${{ secrets.LAGCOACH_KEY_ALIAS }}
+          LAGCOACH_KEY_PASSWORD: ${{ secrets.LAGCOACH_KEY_PASSWORD }}
+        run: >
+          ./gradlew :androidApp:assembleRelease --stacktrace
+          -Plagcoach.versionName="${{ steps.ver.outputs.name }}"
+          -Plagcoach.versionCode="${{ steps.ver.outputs.code }}"
+
+      - name: Rename APK
+        id: apk
+        run: |
+          SRC=$(ls androidApp/build/outputs/apk/release/*.apk | head -1)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            OUT="lagcoach-${GITHUB_REF_NAME}.apk"
+          else
+            OUT="lagcoach-dev-${GITHUB_RUN_NUMBER}.apk"
+          fi
+          cp "$SRC" "$OUT"
+          sha256sum "$OUT" > "$OUT.sha256"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.file }}
+          path: |
+            ${{ steps.apk.outputs.file }}
+            ${{ steps.apk.outputs.file }}.sha256
+
+      # One APK per release, named with the version: Obtainium picks it up directly
+      # from https://github.com/vmoore-school/Lagcoach with no extra config.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.apk.outputs.file }}
+            ${{ steps.apk.outputs.file }}.sha256
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
