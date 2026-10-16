@@ -74,5 +74,6 @@ object AppGraph {
     val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
     /** Nudges the watch service to poll straight away instead of waiting out its interval. */
     val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    val routes: app.lagcoach.engine.RouteLoader by lazy { app.lagcoach.engine.RouteLoader(client) }
     val tracker: app.lagcoach.engine.OneOffTracker by lazy { app.lagcoach.engine.OneOffTracker(repo, client) }
 }

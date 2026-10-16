@@ -27,16 +27,20 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 private const val STOPS = "lag-stops"
 private const val BUSES = "lag-buses"
 private const val ME = "lag-me"
+private const val ROUTE = "lag-route"
 
 private fun hex(c: Long) = String.format("#%06X", c and 0xFFFFFF)
 
@@ -49,11 +53,13 @@ actual fun BusMap(
     vehicles: List<LiveVehicle>,
     me: Pair<Double, Double>?,
     highlightVehicle: Long?,
+    route: List<Pair<Double, Double>>,
     focus: MapFocus?,
     initial: MapFocus,
     onCamera: (BBox, Double) -> Unit,
     onStopTap: (StopRef) -> Unit,
     onVehicleTap: (LiveVehicle) -> Unit,
+    onMapTap: () -> Unit,
 ) {
     val ctx = LocalContext.current
     remember { MapLibre.getInstance(ctx.applicationContext) }
@@ -65,6 +71,7 @@ actual fun BusMap(
     val cameraCb by rememberUpdatedState(onCamera)
     val stopCb by rememberUpdatedState(onStopTap)
     val busCb by rememberUpdatedState(onVehicleTap)
+    val mapTapCb by rememberUpdatedState(onMapTap)
 
     // MapView needs the host lifecycle forwarded to it.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -110,6 +117,7 @@ actual fun BusMap(
                     val atco = f.getStringProperty("atco")
                     latestStops.firstOrNull { it.atco == atco }?.let { stopCb(it); return@addOnMapClickListener true }
                 }
+                mapTapCb()
                 false
             }
         }
@@ -121,9 +129,21 @@ actual fun BusMap(
         style = null
         val url = if (dark) "https://tiles.openfreemap.org/styles/dark" else "https://tiles.openfreemap.org/styles/positron"
         m.setStyle(Style.Builder().fromUri(url)) { s ->
+            s.addSource(GeoJsonSource(ROUTE))
             s.addSource(GeoJsonSource(STOPS))
             s.addSource(GeoJsonSource(BUSES))
             s.addSource(GeoJsonSource(ME))
+            // Under the stops and buses, so they stay tappable on top of it.
+            s.addLayer(
+                LineLayer(ROUTE, ROUTE).withProperties(
+                    PropertyFactory.lineColor(hex(colors.route)),
+                    PropertyFactory.lineWidth(Expression.interpolate(Expression.linear(), Expression.zoom(),
+                        Expression.stop(11, 3f), Expression.stop(17, 7f))),
+                    PropertyFactory.lineOpacity(0.85f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                ),
+            )
             s.addLayer(
                 CircleLayer("$STOPS-dot", STOPS).withProperties(
                     PropertyFactory.circleRadius(Expression.interpolate(Expression.linear(), Expression.zoom(),
@@ -183,6 +203,16 @@ actual fun BusMap(
                     addBooleanProperty("hl", v.id == highlightVehicle)
                 }
             }),
+        )
+    }
+    LaunchedEffect(style, route) {
+        val s = style ?: return@LaunchedEffect
+        s.getSourceAs<GeoJsonSource>(ROUTE)?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                listOfNotNull(
+                    route.takeIf { it.size >= 2 }?.let { r -> Feature.fromGeometry(LineString.fromLngLats(r.map { Point.fromLngLat(it.second, it.first) })) },
+                ),
+            ),
         )
     }
     LaunchedEffect(style, me) {

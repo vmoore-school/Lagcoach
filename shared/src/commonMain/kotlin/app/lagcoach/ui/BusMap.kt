@@ -17,6 +17,7 @@ data class MapColors(
     val busRing: Long,
     val highlight: Long,
     val me: Long,
+    val route: Long,
 )
 
 /**
@@ -32,9 +33,13 @@ expect fun BusMap(
     vehicles: List<LiveVehicle>,
     me: Pair<Double, Double>?,
     highlightVehicle: Long?,
+    /** A bus's path to trace, as (lat, lon); empty for none. */
+    route: List<Pair<Double, Double>>,
     focus: MapFocus?,
     initial: MapFocus,
     onCamera: (BBox, Double) -> Unit,
     onStopTap: (StopRef) -> Unit,
     onVehicleTap: (LiveVehicle) -> Unit,
+    /** A tap that didn't land on a bus or stop. */
+    onMapTap: () -> Unit,
 )

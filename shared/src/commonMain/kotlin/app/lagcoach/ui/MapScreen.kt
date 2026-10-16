@@ -119,7 +119,24 @@ fun MapScreen(nav: Nav) {
             delay(15_000)
         }
     }
-    val highlight = trip?.let { t -> vehicles.firstOrNull { OneOffLogic.matchesBus(it, t) }?.id }
+    // Trace a tapped bus's route; otherwise the trip you're on, from where you got on to your stop.
+    var routeBus by remember { mutableStateOf<LiveVehicle?>(null) }
+    var route by remember { mutableStateOf<List<Pair<Double, Double>>>(emptyList()) }
+    val routeKey = routeBus?.let { "bus ${it.id} ${it.tripId} ${it.journeyId}" } ?: trip?.let { "trip ${it.id} ${it.tripId} ${it.journeyId}" }
+    LaunchedEffect(routeKey) {
+        route = emptyList()
+        val b = routeBus
+        route = runCatching {
+            when {
+                // bustimes.org sometimes still links a bus to a trip it finished earlier; don't draw that.
+                b != null -> AppGraph.routes.path(b.tripId, b.journeyId)
+                    .takeIf { app.lagcoach.engine.RouteShape.distanceTo(it, b.lat to b.lon) <= 300 }.orEmpty()
+                trip != null -> AppGraph.routes.path(trip.tripId, trip.journeyId, trip.from?.atco ?: trip.stops.firstOrNull()?.atco, trip.to.atco)
+                else -> emptyList()
+            }
+        }.getOrDefault(emptyList())
+    }
+    val highlight = routeBus?.id ?: trip?.let { t -> vehicles.firstOrNull { OneOffLogic.matchesBus(it, t) }?.id }
 
     Box(Modifier.fillMaxSize()) {
         BusMap(
@@ -128,17 +145,19 @@ fun MapScreen(nav: Nav) {
             colors = MapColors(
                 stopFill = c.surface.argbLong(), stopRing = c.brand.argbLong(),
                 bus = c.routeBadge.argbLong(), busText = c.onRouteBadge.argbLong(), busRing = c.surface.argbLong(),
-                highlight = c.brand.argbLong(), me = c.brand.argbLong(),
+                highlight = c.brand.argbLong(), me = c.brand.argbLong(), route = c.brand.argbLong(),
             ),
             stops = stops,
             vehicles = vehicles,
             me = me,
             highlightVehicle = highlight,
+            route = route,
             focus = SharedMap.focus,
             initial = initial,
             onCamera = { b, z -> box = b; zoom = z },
-            onStopTap = { selectedStop = it },
-            onVehicleTap = { selectedBus = it },
+            onStopTap = { selectedStop = it; routeBus = null },
+            onVehicleTap = { selectedBus = it; routeBus = it },
+            onMapTap = { routeBus = null },
         )
 
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(12.dp)) {

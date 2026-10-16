@@ -35,6 +35,8 @@ class BusTimesException(message: String, cause: Throwable? = null) : Exception(m
 /** One stop on a trip, used to pick a destination and to work out travel time. */
 data class TripStop(val stop: StopRef, val time: LocalTime?)
 
+data class TripInfo(val serviceId: Long?, val stops: List<TripStop>)
+
 data class Place(val name: String, val slug: String)
 
 data class BBox(val south: Double, val west: Double, val north: Double, val east: Double) {
@@ -66,6 +68,7 @@ data class LiveVehicle(
     val updated: String?,
     /** How far between [prevStop] and [nextStop], 0..1. */
     val progress: Double? = null,
+    val serviceId: Long? = null,
 )
 
 /**
@@ -146,6 +149,7 @@ class BusTimesClient(
                 name = (o["vehicle"] as? JsonObject)?.str("name"),
                 updated = o.str("datetime"),
                 progress = progress?.get("progress")?.jsonPrimitive?.doubleOrNull,
+                serviceId = o["service_id"]?.jsonPrimitive?.longOrNull,
             )
         }
     }
@@ -198,9 +202,12 @@ class BusTimesClient(
     }
 
     /** Timetabled calling points for a trip. */
-    suspend fun tripStops(tripId: Long): List<TripStop> {
+    suspend fun tripStops(tripId: Long): List<TripStop> = trip(tripId).stops
+
+    suspend fun trip(tripId: Long): TripInfo {
         val o = json.parseToJsonElement(getText("$base/api/trips/$tripId/")).jsonObject
-        return o["times"]?.jsonArray.orEmpty().mapNotNull { t ->
+        val serviceId = (o["service"] as? JsonObject)?.get("id")?.jsonPrimitive?.longOrNull
+        return TripInfo(serviceId, o["times"]?.jsonArray.orEmpty().mapNotNull { t ->
             val to = t.jsonObject
             val s = to["stop"]?.jsonObject ?: return@mapNotNull null
             val atco = s.str("atco_code") ?: return@mapNotNull null
@@ -216,6 +223,24 @@ class BusTimesClient(
                 ),
                 time,
             )
+        })
+    }
+
+    /** A service's route shape: road-following lines between neighbouring stops, as (lat, lon). */
+    suspend fun serviceShape(serviceId: Long): List<List<Pair<Double, Double>>> {
+        val o = json.parseToJsonElement(getText("$base/services/$serviceId.json")).jsonObject
+        val geometry = o["geometry"] as? JsonObject ?: return emptyList()
+        val lines = geometry["coordinates"] as? JsonArray ?: return emptyList()
+        fun line(l: kotlinx.serialization.json.JsonElement) = (l as? JsonArray).orEmpty().mapNotNull { p ->
+            val c = p as? JsonArray ?: return@mapNotNull null
+            val lon = c.getOrNull(0)?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+            val lat = c.getOrNull(1)?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+            lat to lon
+        }
+        return when (geometry.str("type")) {
+            "MultiLineString" -> lines.map(::line)
+            "LineString" -> listOf(line(lines))
+            else -> emptyList()
         }
     }
 
