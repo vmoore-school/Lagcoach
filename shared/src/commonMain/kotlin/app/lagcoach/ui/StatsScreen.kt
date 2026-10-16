@@ -167,11 +167,9 @@ private fun SlotRow(s: SlotStats, destination: String?, showJourney: Boolean, jo
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             val sched = "${s.scheduled.hour.toString().padStart(2, '0')}:${s.scheduled.minute.toString().padStart(2, '0')}"
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("$sched departure", style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = TNUM), color = c.ink)
-                if (showJourney && journey != null) {
-                    Text("  ·  $journey", style = MaterialTheme.typography.bodySmall, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+            Text("$sched departure", style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = TNUM), color = c.ink)
+            if (showJourney && journey != null) {
+                Text(journey, style = MaterialTheme.typography.labelMedium, color = c.brand, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             val parts = buildList {
                 add("${s.count} logged")
@@ -181,10 +179,16 @@ private fun SlotRow(s: SlotStats, destination: String?, showJourney: Boolean, jo
             }
             Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.inkMuted)
             if (s.avgArrivalMinutes != null && destination != null) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "Arrives ${destination.substringBefore(" (")} ~${formatClock(s.avgArrivalMinutes)}" +
-                        (s.scheduledArrivalMinutes?.let { " (timetable ${formatClock(it.toDouble())})" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM), color = c.inkMuted,
+                    "Arrive ~${formatClock(s.avgArrivalMinutes)}" +
+                        (s.scheduledArrivalMinutes?.let { " · timetable ${formatClock(it.toDouble())}" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TNUM, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                    color = c.ink,
+                )
+                Text(
+                    "at ${destination.substringBefore(" (")}",
+                    style = MaterialTheme.typography.bodySmall, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -277,7 +281,9 @@ private fun DelayChart(days: List<DayStats>) {
                     drawPath(path, color)
                 }
                 if (d.cancelled > 0) {
-                    drawRect(c.bad, Offset(cx - barW / 2, h - 3.dp.toPx()), Size(barW, 3.dp.toPx()))
+                    // Just under the baseline (or under a negative bar), so it reads as part of that day.
+                    val y = zeroY + (if ((v ?: 0.0) < 0) (abs(v!!) * unit).toFloat() else 0f) + 4.dp.toPx()
+                    drawRect(c.bad, Offset(cx - barW / 2, y), Size(barW, 3.dp.toPx()))
                 }
             }
             drawLine(c.inkFaint, Offset(0f, zeroY), Offset(size.width, zeroY), 1.dp.toPx())
