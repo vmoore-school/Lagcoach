@@ -14,6 +14,7 @@ object Notifier {
     const val CH_ALERTS = "alerts"
     const val CH_WATCHING = "watching"
     const val CH_TRIP = "trip"
+    const val CH_WAITING = "waiting"
     const val EXTRA_OPEN = "open"
     const val ONGOING_ID = 1
     private const val BRAND = 0xFF0077C8.toInt()
@@ -28,6 +29,14 @@ object Notifier {
         nm.createNotificationChannel(
             NotificationChannel(CH_WATCHING, "Watching a journey", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Shown while Lagcoach is checking live times. Required by Android for background checking."
+                setShowBadge(false)
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_WAITING, "Waiting for your bus", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Minutes until your next bus while a journey is being watched (a Live Update on Android 16+)"
+                setSound(null, null)
+                enableVibration(false)
                 setShowBadge(false)
             },
         )
@@ -119,8 +128,16 @@ object Notifier {
         }
     }
 
-    fun ongoing(ctx: Context, title: String, text: String, watching: List<Pair<app.lagcoach.model.Watch, String>> = emptyList()) =
-        NotificationCompat.Builder(ctx, CH_WATCHING)
+    /**
+     * While a journey is being watched. With a bus to wait for it's an Android 16+ Live
+     * Update whose status bar chip counts down the minutes to it.
+     */
+    fun ongoing(
+        ctx: Context, title: String, text: String,
+        watching: List<Pair<app.lagcoach.model.Watch, String>> = emptyList(),
+        nextBus: kotlin.time.Instant? = null,
+    ) =
+        NotificationCompat.Builder(ctx, if (nextBus != null) CH_WAITING else CH_WATCHING)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(BRAND)
             .setContentTitle(title)
@@ -129,14 +146,24 @@ object Notifier {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .apply {
+                if (nextBus != null) {
+                    val mins = ((nextBus.epochSeconds - System.currentTimeMillis() / 1000 + 30) / 60).toInt()
+                    setRequestPromotedOngoing(true)
+                    setShortCriticalText(if (mins <= 0) "Now" else "$mins min")
+                    setShowWhen(false)
+                }
+            }
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openApp(ctx))
             .apply { notTakingActions(ctx, watching) }
             .build()
 
-    fun updateOngoing(ctx: Context, title: String, text: String, watching: List<Pair<app.lagcoach.model.Watch, String>>) =
-        post(ctx, ONGOING_ID) { ongoing(ctx, title, text, watching) }
+    fun updateOngoing(
+        ctx: Context, title: String, text: String,
+        watching: List<Pair<app.lagcoach.model.Watch, String>>, nextBus: kotlin.time.Instant?,
+    ) = post(ctx, ONGOING_ID) { ongoing(ctx, title, text, watching, nextBus) }
 
     /** Clears alerts already showing for a journey (e.g. after "Not taking"). */
     fun cancelAlerts(ctx: Context, watchId: String) {

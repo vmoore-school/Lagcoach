@@ -18,6 +18,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * Runs only while a journey window is open: polls bustimes.org every N seconds, raises
@@ -79,7 +80,14 @@ class WatchService : Service() {
                     Notifier.updateTripLive(this, trip, extra, skippable)
                 } else if (act.isNotEmpty()) {
                     val title = if (act.size == 1) act[0].first.label else "Watching ${act.size} journeys"
-                    Notifier.updateOngoing(this, title, act.joinToString("\n") { (w, s) -> if (act.size == 1) s else "${w.label}: $s" }, skippable)
+                    // The soonest bus still to come across the windows being watched.
+                    val live = AppGraph.live.state.value
+                    val nextBus = act.mapNotNull { (w, _) ->
+                        live[w.id]?.relevant?.firstOrNull { !it.cancelled && it.effective >= now - 1.minutes }?.effective
+                    }.minOrNull()
+                    Notifier.updateOngoing(
+                        this, title, act.joinToString("\n") { (w, s) -> if (act.size == 1) s else "${w.label}: $s" }, skippable, nextBus,
+                    )
                 }
                 // Follow a bus you're on more closely than a commute window.
                 val poll = AppGraph.repo.data.value.settings.pollSeconds.coerceIn(20, 600)
